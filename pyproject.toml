@@ -17,9 +17,12 @@ namespaces = true
 # ----------------------------------------- Project Metadata -------------------------------------
 #
 [project]
-version = "0.0.0.dev0"
+version = "0.0.0.dev1"
 name = "PySerials"
 dependencies = [
-    "markitup",
+    "jsonschema >= 4.19, < 5",
+    "ruamel.yaml >= 0.17.32, < 0.18", # https://yaml.readthedocs.io/en/stable/
+    "ruamel.yaml.string >= 0.1.1, < 1",
+    "tomlkit >= 0.11.8, < 0.12", # https://tomlkit.readthedocs.io/en/stable/,
 ]
 requires-python = ">=3.10"
