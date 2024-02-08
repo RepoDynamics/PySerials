@@ -1,5 +1,5 @@
 from pathlib import Path as _Path
-
+import json as _json
 import ruamel.yaml as _yaml
 import tomlkit as _tomlkit
 
@@ -28,3 +28,11 @@ def to_toml_string(
     sort_keys: bool = True,
 ) -> str:
     return _tomlkit.dumps(data, sort_keys=sort_keys)
+
+
+def to_json_string(
+    data: dict | list | str | int | float | bool | _yaml.CommentedMap | _yaml.CommentedSeq,
+    sort_keys: bool = True,
+    indent: int | None = None,
+) -> str:
+    return _json.dumps(data, indent=indent, sort_keys=sort_keys)
