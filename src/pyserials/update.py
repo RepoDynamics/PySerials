@@ -14,8 +14,7 @@ def dict_from_addon(
     def recursive(source: dict, add: dict, path: str, log: dict):
 
         def raise_duplication_error():
-            raise _exception.DictUpdateError(
-                error_type=_exception.UpdateErrorType.DUPLICATION,
+            raise _exception.update.PySerialsDictUpdateDuplicationError(
                 address=fullpath,
                 value_data=source[key],
                 value_addon=value,
@@ -28,8 +27,7 @@ def dict_from_addon(
                 source[key] = value
                 continue
             if type(source[key]) is not type(value):
-                raise _exception.DictUpdateError(
-                    error_type=_exception.UpdateErrorType.TYPE_MISMATCH,
+                raise _exception.update.PySerialsDictUpdateTypeMismatchError(
                     address=fullpath,
                     value_data=source[key],
                     value_addon=value,
@@ -91,6 +89,8 @@ class _TemplateFiller:
     ):
         self._data = templated_data
         self._source = source_data
+        self._template_start = template_start
+        self._template_end = template_end
         marker_start = _re.escape(template_start)
         marker_end = _re.escape(template_end)
         self._pattern_template_whole = _re.compile(rf"^{marker_start}([\w\.\:\-\[\] ]+){marker_end}$")
@@ -128,12 +128,20 @@ class _TemplateFiller:
             except (TypeError, KeyError, IndexError) as e:
                 try:
                     next_layer = self._recursive_subst(obj)[curr_add]
-                except (TypeError, KeyError, IndexError) as e2:
-                    raise KeyError(f"Object '{obj}' has no element '{curr_add}'") from e
+                except (TypeError, KeyError, IndexError):
+                    raise _exception.update.PySerialsTemplateUpdateMissingSourceError(
+                        address_full=address_full,
+                        address_missing=curr_add,
+                        templated_data=self._data,
+                        source_data=self._source,
+                        template_start=self._template_start,
+                        template_end=self._template_end,
+                    ) from e
             return recursive_retrieve(next_layer, address)
 
+        address_full = match.strip()
         parsed_address = []
-        for add in match.strip().split("."):
+        for add in address_full.split("."):
             name = self._pattern_address_name.match(add).group()
             indices = self._pattern_address_indices.findall(add)
             parsed_address.append(name)
