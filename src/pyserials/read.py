@@ -21,11 +21,7 @@ def from_file(
         if data_type == "yml":
             data_type = "yaml"
         if data_type not in ("json", "yaml", "toml"):
-            raise _exception.ReadError(
-                error_type=_exception.ReadErrorType.EXTENSION_INVALID,
-                source_type="file",
-                filepath=path,
-            )
+            raise _exception.read.PySerialsInvalidFileExtensionError(filepath=path)
     if data_type == "json":
         return json_from_file(path=path, strict=json_strict)
     if data_type == "yaml":
@@ -139,18 +135,16 @@ def _read_from_file(
     exception,
 ):
     path = _Path(path).resolve()
-    common_error_args = {"source_type": "file", "data_type": data_type, "filepath": path}
     if not path.is_file():
-        raise _exception.ReadError(error_type=_exception.ReadErrorType.FILE_MISSING, **common_error_args)
+        raise _exception.read.PySerialsMissingFileError(filepath=path)
     data = path.read_text()
-    common_error_args["data"] = data
     if data.strip() == "":
-        raise _exception.ReadError(error_type=_exception.ReadErrorType.FILE_EMPTY, **common_error_args)
+        raise _exception.read.PySerialsEmptyFileError(filepath=path)
     try:
         content = loader(data)
     except exception as e:
-        raise _exception.ReadError(
-            error_type=_exception.ReadErrorType.DATA_INVALID, **common_error_args
+        raise _exception.read.PySerialsInvalidDataFileError(
+            filepath=path, data_type=data_type, data=data
         ) from e
     return content
 
@@ -161,13 +155,10 @@ def _read_from_string(
     loader,
     exception,
 ):
-    common_error_args = {"source_type": "string", "data": data, "data_type": data_type}
     if not data.strip():
-        raise _exception.ReadError(error_type=_exception.ReadErrorType.STRING_EMPTY, **common_error_args)
+        raise _exception.read.PySerialsEmptyStringError(data_type=data_type)
     try:
         content = loader(data)
     except exception as e:
-        raise _exception.ReadError(
-            error_type=_exception.ReadErrorType.DATA_INVALID, **common_error_args
-        ) from e
+        raise _exception.read.PySerialsInvalidDataStringError(data_type=data_type, data=data) from e
     return content
