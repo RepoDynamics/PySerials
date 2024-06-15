@@ -6,7 +6,7 @@ import pyserials.exception as _exception
 def jsonschema(
     data: dict | list | str | int | float | bool,
     schema: dict,
-    validator: _jsonschema.validators.Validator = _jsonschema.Draft202012Validator,
+    validator: _jsonschema.protocols.Validator = _jsonschema.Draft202012Validator,
     fill_defaults: bool = True,
     raise_invalid_data: bool = True,
 ) -> bool:
@@ -19,7 +19,7 @@ def jsonschema(
         The data to validate.
     schema : dict
         The schema to validate the data against.
-    validator : jsonschema.validators.Validator, default: jsonschema.Draft202012Validator
+    validator : jsonschema.protocols.Validator, default: jsonschema.Draft202012Validator
         The JSON schema validator to use.
     fill_defaults : bool, default: True
         Whether to fill in the data with default values from the schema,
