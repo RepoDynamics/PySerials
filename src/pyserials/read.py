@@ -1,4 +1,4 @@
-from typing import Literal as _Literal
+from typing import Literal as _Literal, Callable as _Callable, Any as _Any
 import json as _json
 from pathlib import Path as _Path
 from functools import partial as _partial
@@ -20,8 +20,8 @@ def from_file(
         data_type = _Path(path).suffix.removeprefix(".")
         if data_type == "yml":
             data_type = "yaml"
-        if data_type not in ("json", "yaml", "toml"):
-            raise _exception.read.PySerialsInvalidFileExtensionError(filepath=path)
+    if data_type not in ("json", "yaml", "toml"):
+        raise _exception.read.PySerialsInvalidFileExtensionError(filepath=path)
     if data_type == "json":
         return json_from_file(path=path, strict=json_strict)
     if data_type == "yaml":
@@ -97,32 +97,56 @@ def json_from_file(path: str | _Path, strict: bool = True) -> dict | list | str 
 
 
 def yaml(
-    source: str | _Path, safe: bool = True
+    source: str | _Path,
+    safe: bool = True,
+    constructors: dict[str, _Callable[[_yaml.Constructor, _yaml.ScalarNode], _Any]] | None = None,
 ) -> dict | list | str | int | float | bool | _yaml.CommentedMap | _yaml.CommentedSeq:
+    """Load YAML data from a file or string.
+
+    Parameters
+    ----------
+    source : str | _Path
+        Path to the file or YAML data string.
+    safe : bool, default: True
+        Use safe YAML loader.
+    constructors : dict[str, Callable], default: None
+        Custom YAML constructors.
+
+    References
+    ----------
+    - See `add_constructor` method in
+      `ruamel.yaml.constructor.SafeConstructor` and `ruamel.yaml.constructor.RoundTripConstructor`.
+    - See `add_constructor` in [PyYAML documentation](https://pyyaml.org/wiki/PyYAMLDocumentation).
+    - See Tags in [YAML documentation](https://yaml.org/spec/1.2.0/#id2560445)
+    """
     if isinstance(source, str):
-        return yaml_from_string(data=source, safe=safe)
+        return yaml_from_string(data=source, safe=safe, constructors=constructors)
     return yaml_from_file(path=source, safe=safe)
 
 
 def yaml_from_string(
-    data: str, safe: bool = True
+    data: str,
+    safe: bool = True,
+    constructors: dict[str, _Callable[[_yaml.Constructor, _yaml.ScalarNode], _Any]] | None = None,
 ) -> dict | list | str | int | float | bool | _yaml.CommentedMap | _yaml.CommentedSeq:
     content = _read_from_string(
         data=data,
         data_type="yaml",
-        loader=_yaml.YAML(typ="safe" if safe else "rt").load,
+        loader=_make_yaml_loader(safe=safe, constructors=constructors).load,
         exception=_yaml.YAMLError
     )
     return content
 
 
 def yaml_from_file(
-    path: str | _Path, safe: bool = True
+    path: str | _Path,
+    safe: bool = True,
+    constructors: dict[str, _Callable[[_yaml.Constructor, _yaml.ScalarNode], _Any]] | None = None,
 ) -> dict | list | str | int | float | bool | _yaml.CommentedMap | _yaml.CommentedSeq:
     content = _read_from_file(
         path=path,
         data_type="yaml",
-        loader=_yaml.YAML(typ="safe" if safe else "rt").load,
+        loader=_make_yaml_loader(safe=safe, constructors=constructors).load,
         exception=_yaml.YAMLError
     )
     return content
@@ -162,3 +186,14 @@ def _read_from_string(
     except exception as e:
         raise _exception.read.PySerialsInvalidDataStringError(data_type=data_type, data=data) from e
     return content
+
+
+def _make_yaml_loader(
+    safe: bool,
+    constructors: dict[str, _Callable[[_yaml.Constructor, _yaml.ScalarNode], _Any]] | None = None
+) -> _yaml.YAML:
+    loader = _yaml.YAML(typ="safe" if safe else "rt")
+    if constructors:
+        for key, constructor in constructors.items():
+            loader.constructor.add_constructor(key, constructor)
+    return loader

@@ -1,5 +1,8 @@
 import re as _re
 
+import jsonpath_ng as _jsonpath
+from jsonpath_ng import exceptions as _jsonpath_exceptions
+
 import pyserials.exception as _exception
 
 
@@ -9,6 +12,7 @@ def dict_from_addon(
     append_list: bool = True,
     append_dict: bool = True,
     raise_duplicates: bool = False,
+    raise_type_mismatch: bool = True,
 ) -> dict[str, list[str]]:
     """Recursively update a dictionary from another dictionary."""
     def recursive(source: dict, add: dict, path: str, log: dict):
@@ -27,11 +31,13 @@ def dict_from_addon(
                 source[key] = value
                 continue
             if type(source[key]) is not type(value):
-                raise _exception.update.PySerialsDictUpdateTypeMismatchError(
-                    address=fullpath,
-                    value_data=source[key],
-                    value_addon=value,
-                )
+                if raise_type_mismatch:
+                    raise _exception.update.PySerialsDictUpdateTypeMismatchError(
+                        address=fullpath,
+                        value_data=source[key],
+                        value_addon=value,
+                    )
+                continue
             if not isinstance(value, (list, dict)):
                 if raise_duplicates:
                     raise_duplication_error()
@@ -63,95 +69,157 @@ def dict_from_addon(
     return full_log
 
 
-def templated_data_from_source(
-    templated_data: dict | list | str | bool | int | float,
-    source_data: dict,
-    template_start: str = "${{",
-    template_end: str = "}}",
-):
-    filler = _TemplateFiller(
-        templated_data=templated_data,
-        source_data=source_data,
-        template_start=template_start,
-        template_end=template_end
-    )
-    return filler.fill()
+def data_from_jsonschema(data: dict | list, schema: dict) -> None:
+    """Fill missing data in a data structure with default values from a JSON schema."""
+    if 'properties' in schema:
+        for prop, subschema in schema['properties'].items():
+            if 'default' in subschema:
+                data.setdefault(prop, subschema['default'])
+            if prop in data:
+                data_from_jsonschema(data[prop], subschema)
+    elif 'items' in schema and isinstance(data, list):
+        for item in data:
+            data_from_jsonschema(item, schema['items'])
+    return
 
 
-class _TemplateFiller:
+class TemplateFiller:
 
     def __init__(
         self,
-        templated_data: dict | list | str | bool | int | float,
-        source_data: dict,
-        template_start: str,
-        template_end: str,
+        marker_start: str = "${{",
+        marker_end: str = "}}",
+        path_prefix: str = "$.",
+    ):
+        self._marker_start = marker_start
+        self._marker_end = marker_end
+        start = _re.escape(marker_start)
+        end = _re.escape(marker_end)
+        regex_sub = rf"{start}([^{end}]+){end}"
+        self._pattern_template = _re.compile(regex_sub)
+        self._prefix = path_prefix
+        self._data = None
+        self._source = None
+        self._recursive = None
+        self._path = None
+        return
+
+    def fill(
+        self,
+        templated_data: dict | list | str,
+        source_data: dict | list,
+        current_path: str = "",
+        always_list: bool = True,
+        recursive: bool = True,
     ):
         self._data = templated_data
         self._source = source_data
-        self._template_start = template_start
-        self._template_end = template_end
-        marker_start = _re.escape(template_start)
-        marker_end = _re.escape(template_end)
-        self._pattern_template_whole = _re.compile(rf"^{marker_start}([\w\.\:\-\[\] ]+){marker_end}$")
-        self._pattern_template_sub = _re.compile(rf"{marker_start}([\w\.\:\-\[\] ]+?){marker_end}")
-        self._pattern_address_name = _re.compile(r"^([^[]+)")
-        self._pattern_address_indices = _re.compile(r"\[([^]]+)]")
-        return
+        self._recursive = recursive
+        current_path = f"$.{current_path}" if current_path else "$"
+        return self._recursive_subst(self._data, current_path=current_path, always_list=always_list)
 
-    def fill(self):
-        return self._recursive_subst(self._data)
+    def _recursive_subst(self, templ, current_path: str, always_list: bool):
 
-    def _recursive_subst(self, value):
-        if isinstance(value, str):
-            match_whole_str = self._pattern_template_whole.match(value)
-            if match_whole_str:
-                return self._substitute_val(match_whole_str.group(1))
-            return self._pattern_template_sub.sub(lambda x: str(self._substitute_val(x.group(1))), value)
-        if isinstance(value, list):
-            return [self._recursive_subst(elem) for elem in value]
-        elif isinstance(value, dict):
-            new_dict = {}
-            for key, val in value.items():
-                key_filled = self._recursive_subst(key)
-                new_dict[key_filled] = self._recursive_subst(val)
-            return new_dict
-        return value
+        def _rec_match(expr):
+            matches = expr.find(self._source)
+            if matches:
+                return matches
+            if isinstance(expr.left, _jsonpath.Root):
+                raise _exception.update.PySerialsTemplateUpdateMissingSourceError(
+                    address_full=str(expr).removeprefix("$").removeprefix("."),
+                    current_path=current_path,
+                    templated_data=self._data,
+                    source_data=self._source,
+                    template_start=self._marker_start,
+                    template_end=self._marker_end,
+                )
+            whole_matches = []
+            left_matches = _rec_match(expr.left)
+            for left_match in left_matches:
+                left_match_filled = self._recursive_subst(left_match.value, current_path=str(expr.left), always_list=False) if isinstance(left_match.value, str) else left_match.value
+                right_matches = expr.right.find(left_match_filled)
+                whole_matches.extend(right_matches)
+            if not whole_matches:
+                raise _exception.update.PySerialsTemplateUpdateMissingSourceError(
+                    address_full=str(expr),
+                    current_path=current_path,
+                    templated_data=self._data,
+                    source_data=self._source,
+                    template_start=self._marker_start,
+                    template_end=self._marker_end,
+                )
+            return whole_matches
 
-    def _substitute_val(self, match):
-        def recursive_retrieve(obj, address):
-            if len(address) == 0:
-                return self._recursive_subst(obj)
-            curr_add = address.pop(0)
+        def get_address_value(re_match):
+            path, num_periods = self._remove_leading_periods(re_match.group(1).strip())
+            if num_periods == 0:
+                path = f"$.{path}"
             try:
-                next_layer = obj[curr_add]
-            except (TypeError, KeyError, IndexError) as e:
-                try:
-                    next_layer = self._recursive_subst(obj)[curr_add]
-                except (TypeError, KeyError, IndexError):
-                    raise _exception.update.PySerialsTemplateUpdateMissingSourceError(
-                        address_full=address_full,
-                        address_missing=curr_add,
-                        templated_data=self._data,
-                        source_data=self._source,
-                        template_start=self._template_start,
-                        template_end=self._template_end,
-                    ) from e
-            return recursive_retrieve(next_layer, address)
+                path_expr = _jsonpath.parse(path)
+            except _jsonpath_exceptions.JSONPathError:
+                raise _exception.update.PySerialsUpdateTemplatedDataException(
+                    message=f"JSONPath expression {path} is invalid",
+                    current_path=current_path,
+                    templated_data=self._data,
+                    source_data=self._source,
+                    template_start=self._marker_start,
+                    template_end=self._marker_end,
+                )
+            if num_periods:
+                root_path_expr = _jsonpath.parse(current_path)
+                for period in range(num_periods):
+                    if isinstance(root_path_expr, _jsonpath.Root):
+                        raise _exception.update.PySerialsUpdateTemplatedDataException(
+                            message=f"Path {current_path} is invalid",
+                            current_path=current_path,
+                            templated_data=self._data,
+                            source_data=self._source,
+                            template_start=self._marker_start,
+                            template_end=self._marker_end,
+                        )
+                    root_path_expr = root_path_expr.left
+                path_expr = root_path_expr.child(path_expr)
+            return get_value(path_expr)
 
-        address_full = match.strip()
-        parsed_address = []
-        for add in address_full.split("."):
-            name = self._pattern_address_name.match(add).group()
-            indices = self._pattern_address_indices.findall(add)
-            parsed_address.append(name)
-            parsed_ind = []
-            for idx in indices:
-                if ":" not in idx:
-                    parsed_ind.append(int(idx))
-                else:
-                    slice_ = [int(i) if i else None for i in idx.split(":")]
-                    parsed_ind.append(slice(*slice_))
-            parsed_address.extend(parsed_ind)
-        return recursive_retrieve(self._source, address=parsed_address)
+        def get_value(jsonpath):
+            matches = _rec_match(jsonpath)
+            values = [m.value for m in matches]
+            single = len(values) == 1 and not always_list
+            output = values[0] if single else values
+            if not self._recursive:
+                return output
+            return self._recursive_subst(output, current_path=str(jsonpath), always_list=always_list)
 
+        if isinstance(templ, str):
+            match_whole_str = self._pattern_template.fullmatch(templ)
+            if match_whole_str:
+                return get_address_value(match_whole_str)
+            return self._pattern_template.sub(
+                lambda x: str(get_address_value(x)),
+                templ
+            )
+        if isinstance(templ, list):
+            return [
+                self._recursive_subst(
+                    elem, f"{current_path}[{idx}]", always_list
+                ) for idx, elem in enumerate(templ)
+            ]
+        elif isinstance(templ, dict):
+            new_dict = {}
+            for key, val in templ.items():
+                key_filled = self._recursive_subst(key, current_path, always_list=False)
+                new_dict[key_filled] = self._recursive_subst(val, f"{current_path}.'{key_filled}'", always_list=always_list)
+            return new_dict
+        return templ
+
+    @staticmethod
+    def _remove_leading_periods(s: str) -> (str, int):
+        match = _re.match(r"^(\.*)(.*)", s)
+        if match:
+            leading_periods = match.group(1)
+            rest_of_string = match.group(2)
+            num_periods = len(leading_periods)
+        else:
+            num_periods = 0
+            rest_of_string = s
+        return rest_of_string, num_periods

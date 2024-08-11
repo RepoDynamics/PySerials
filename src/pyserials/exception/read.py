@@ -87,7 +87,7 @@ class PySerialsInvalidDataFileError(PySerialsReadFromFileException):
     """
 
     def __init__(self, filepath: _Path, data_type: _Literal["json", "yaml", "toml"], data: str):
-        message = f"The {data_type} file at '{filepath}' is invalid."
+        message = f"The {data_type} file at '{filepath}' has invalid data."
         super().__init__(message=message, filepath=filepath)
         self.data = data
         self.data_type = data_type

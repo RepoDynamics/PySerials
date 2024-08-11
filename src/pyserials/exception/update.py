@@ -9,7 +9,7 @@ class PySerialsUpdateException(_PySerialsException):
     """Base class for all exceptions raised by `pyserials.update` module."""
 
     def __init__(self, message: str):
-        super().__init__(f"Failed to update data. {message}.")
+        super().__init__(f"Failed to update data. {message.removesuffix('.')}.")
         return
 
 
@@ -58,12 +58,14 @@ class PySerialsUpdateTemplatedDataException(PySerialsUpdateException):
     def __init__(
         self,
         message: str,
+        current_path: str,
         templated_data: str,
         source_data: dict,
         template_start: str,
         template_end: str
     ):
         super().__init__(message=message)
+        self.current_path = current_path
         self.templated_data = templated_data
         self.source_data = source_data
         self.template_start = template_start
@@ -110,22 +112,21 @@ class PySerialsTemplateUpdateMissingSourceError(PySerialsUpdateTemplatedDataExce
     def __init__(
         self,
         address_full: str,
-        address_missing: str,
         templated_data: str,
         source_data: dict,
         template_start: str,
-        template_end: str
+        template_end: str,
+        current_path: str = "",
     ):
-        message = (
-            f"The key/index '{address_missing}' is missing in the source data at '{address_full}'"
-        )
+        message = f"Error at '{current_path}'. " if current_path else ""
+        message += f"The path '{address_full}' is missing in the source data."
         super().__init__(
             message=message,
             templated_data=templated_data,
+            current_path=current_path,
             source_data=source_data,
             template_start=template_start,
             template_end=template_end
         )
         self.address_full = address_full
-        self.address_missing = address_missing
         return
