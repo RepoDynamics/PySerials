@@ -17,7 +17,7 @@ namespaces = true
 # ----------------------------------------- Project Metadata -------------------------------------
 #
 [project]
-version = "0.0.0.dev4"
+version = "0.0.0.dev5"
 name = "PySerials"
 dependencies = [
     "jsonschema >= 4.21.0, < 5",
@@ -26,6 +26,7 @@ dependencies = [
     "tomlkit >= 0.11.8, < 0.12", # https://tomlkit.readthedocs.io/en/stable/,
     "markitup",
     "ansi-sgr",
-    "ExceptionMan"
+    "ExceptionMan",
+    "jsonpath-ng >= 1.6.1, < 2",
 ]
 requires-python = ">=3.10"
