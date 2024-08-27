@@ -3,36 +3,53 @@ import pyserials as _ps
 
 class NestedDict:
 
-    def __init__(self, data: dict | None = None):
+    def __init__(
+        self,
+        data: dict | None = None,
+        template_marker_start: str = "${{",
+        template_marker_end: str = "}}",
+        template_implicit_root: bool = True,
+    ):
         self._data = data or {}
         self._templater = _ps.update.TemplateFiller(
-            marker_start="${{",
-            marker_end="}}",
-            path_prefix="$.",
+            marker_start=template_marker_start,
+            marker_end=template_marker_end,
+            implicit_root=template_implicit_root,
         )
         return
 
-    def fill(self, path: str = ""):
+    def fill(
+        self,
+        path: str = "",
+        always_list: bool = False,
+        recursive: bool = True,
+    ):
         if not path:
             value = self._data
         else:
             value = self.__getitem__(path)
         if not value:
             return
-        filled_value = self.fill_data(data=value, current_path=path)
+        filled_value = self.fill_data(data=value, current_path=path, always_list=always_list, recursive=recursive)
         if not path:
             self._data = filled_value
         else:
             self.__setitem__(path, filled_value)
         return filled_value
 
-    def fill_data(self, data, current_path: str = ""):
+    def fill_data(
+        self,
+        data,
+        current_path: str = "",
+        always_list: bool = False,
+        recursive: bool = True,
+    ):
         return self._templater.fill(
             templated_data=data,
             source_data=self._data,
             current_path=current_path,
-            always_list=False,
-            recursive=True,
+            always_list=always_list,
+            recursive=recursive,
         )
 
     def __call__(self):

@@ -1,54 +1,112 @@
 """Exceptions raised by `pyserials.update` module."""
 
-from typing import Any as _Any
+from __future__ import annotations
+from typing import Any as _Any, Literal as _Literal
 
-from pyserials.exception._base import PySerialsException as _PySerialsException
+from markitup.html import elem as _html
 
-
-class PySerialsUpdateException(_PySerialsException):
-    """Base class for all exceptions raised by `pyserials.update` module."""
-
-    def __init__(self, message: str):
-        super().__init__(f"Failed to update data. {message.removesuffix('.')}.")
-        return
+from pyserials.exception import _base
 
 
-class PySerialsUpdateDictFromAddonException(PySerialsUpdateException):
-    """Base class for all exceptions raised by `pyserials.update.dict_from_addon`.
+class PySerialsUpdateException(_base.PySerialsException):
+    """Base class for all exceptions raised by `pyserials.update` module.
 
     Attributes
     ----------
-    address : str
-        The address of the data that failed to update.
-    value_data : Any
-        The value of the data in the source dictionary.
-    value_addon : Any
-        The value of the data in the addon dictionary.
+    path : str
+        JSONPath to where the update failed.
+    data : dict | list | str | int | float | bool
+        Data that failed to update.
+    data_full : dict | list | str | int | float | bool
+        Full data input.
     """
 
     def __init__(
         self,
-        message: str,
-        address: str,
-        value_data: _Any,
-        value_addon: _Any,
+        path: str,
+        data: dict | list | str | int | float | bool,
+        data_full: dict | list | str | int | float | bool,
+        description: str,
+        description_html: str | _html.Element | None = None,
     ):
-        super().__init__(message=message)
-        self.address = address
-        self.value_data = value_data
-        self.value_addon = value_addon
+        message_template = "Failed to update data at {path}."
+        path_console, path_html = _base.format_code(path)
+        super().__init__(
+            message=message_template.format(path=path_console),
+            message_html=message_template.format(path=path_html),
+            description=description,
+            description_html=description_html,
+            report_heading="PySerials Update Error Report",
+        )
+        self.path = path
+        self.data = data
+        self.data_full = data_full
         return
 
 
-class PySerialsUpdateTemplatedDataException(PySerialsUpdateException):
-    """Base class for all exceptions raised by `pyserials.update.templated_data_from_source`.
+class PySerialsUpdateDictFromAddonError(PySerialsUpdateException):
+    """Base class for all exceptions raised by `pyserials.update.dict_from_addon`.
 
     Attributes
     ----------
-    templated_data : str
-        The templated data that failed to update.
-    source_data : dict
-        The data that was used to update the template.
+    data_addon : Any
+        Value of the failed data in the addon dictionary.
+    data_addon_full : dictionary
+        Full addon input.
+    """
+
+    def __init__(
+        self,
+        problem_type: _Literal["duplicate", "type_mismatch"],
+        path: str,
+        data: _Any,
+        data_full: dict,
+        data_addon: _Any,
+        data_addon_full: dict,
+    ):
+        self.type_data = type(data)
+        self.type_data_addon = type(data_addon)
+        type_data_console, type_data_html = _base.format_code(self.type_data.__name__)
+        type_data_addon_console, type_data_addon_html = _base.format_code(self.type_data_addon.__name__)
+        path_console, path_html = _base.format_code(path)
+        kwargs_console, kwargs_html = (
+            {"path": path, "type_data": type_data, "type_data_addon": type_data_addon}
+            for path, type_data, type_data_addon in zip(
+                (path_console, path_html),
+                (type_data_console, type_data_html),
+                (type_data_addon_console, type_data_addon_html),
+            )
+        )
+        description_template = (
+            "There was a duplicate in the addon dictionary; "
+            "the value of type {type_data_addon} already exists in the source data."
+        ) if problem_type == "duplicate" else (
+            "There was a type mismatch between the source and addon dictionary values; "
+            "the value is of type {type_data} in the source data, "
+            "but of type {type_data_addon} in the addon data."
+        )
+        super().__init__(
+            description=description_template.format(**kwargs_console),
+            description_html=description_template.format(**kwargs_html),
+            path=path,
+            data=data,
+            data_full=data_full,
+        )
+        self.problem_type: _Literal["duplicate", "type_mismatch"] = problem_type
+        self.data_addon = data_addon
+        self.data_addon_full = data_addon_full
+        return
+
+
+class PySerialsUpdateTemplatedDataError(PySerialsUpdateException):
+    """Exception raised when updating templated data fails.
+
+    Attributes
+    ----------
+    path_invalid : str
+        JSONPath that caused the update to fail.
+    data_source : dict
+        Source data that was used to update the template.
     template_start : str
         The start marker of the template.
     template_end : str
@@ -57,76 +115,25 @@ class PySerialsUpdateTemplatedDataException(PySerialsUpdateException):
 
     def __init__(
         self,
-        message: str,
-        current_path: str,
-        templated_data: str,
-        source_data: dict,
-        template_start: str,
-        template_end: str
-    ):
-        super().__init__(message=message)
-        self.current_path = current_path
-        self.templated_data = templated_data
-        self.source_data = source_data
-        self.template_start = template_start
-        self.template_end = template_end
-        return
-
-
-class PySerialsDictUpdateTypeMismatchError(PySerialsUpdateDictFromAddonException):
-    """Exception raised when a dict update fails due to a type mismatch."""
-
-    def __init__(self, address: str, value_data: _Any, value_addon: _Any):
-        message = (
-            f"There was a type mismatch between the source and addon dictionary values at '{address}'; "
-            f"the value is of type '{type(value_data).__name__}' in the source data, "
-            f"but of type '{type(value_addon).__name__}' in the addon data"
-        )
-        super().__init__(message=message, address=address, value_data=value_data, value_addon=value_addon)
-        return
-
-
-class PySerialsDictUpdateDuplicationError(PySerialsUpdateDictFromAddonException):
-    """Exception raised when a dict update fails due to a duplication."""
-
-    def __init__(self, address: str, value_data: _Any, value_addon: _Any):
-        message = (
-            f"There was a duplication in the addon dictionary at '{address}'; "
-            f"the value of type '{type(value_addon).__name__}' already exists in the source data"
-        )
-        super().__init__(message=message, address=address, value_data=value_data, value_addon=value_addon)
-        return
-
-
-class PySerialsTemplateUpdateMissingSourceError(PySerialsUpdateTemplatedDataException):
-    """Exception raised when a templated data update fails due to a missing key in source data.
-
-    Attributes
-    ----------
-    address_full : str
-        The full address in the source data where the key/index is missing.
-    address_missing : str
-        The key/index that is missing in the source data at `address_full`.
-    """
-
-    def __init__(
-        self,
-        address_full: str,
-        templated_data: str,
-        source_data: dict,
+        description_template: str,
+        path_invalid: str,
+        path: str,
+        data: str,
+        data_full: dict | list | str | int | float | bool,
+        data_source: dict,
         template_start: str,
         template_end: str,
-        current_path: str = "",
     ):
-        message = f"Error at '{current_path}'. " if current_path else ""
-        message += f"The path '{address_full}' is missing in the source data."
+        path_invalid_console, path_invalid_html = _base.format_code(path_invalid.replace("'", ""))
         super().__init__(
-            message=message,
-            templated_data=templated_data,
-            current_path=current_path,
-            source_data=source_data,
-            template_start=template_start,
-            template_end=template_end
+            description=description_template.format(path_invalid=path_invalid_console),
+            description_html=description_template.format(path_invalid=path_invalid_html),
+            path=path.replace("'", ""),
+            data=data,
+            data_full=data_full,
         )
-        self.address_full = address_full
+        self.path_invalid = path_invalid
+        self.data_source = data_source
+        self.template_start = template_start
+        self.template_end = template_end
         return

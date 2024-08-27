@@ -17,7 +17,7 @@ def from_file(
     toml_as_dict: bool = False,
 ):
     if data_type is None:
-        data_type = _Path(path).suffix.removeprefix(".")
+        data_type = _Path(path).suffix.removeprefix(".").lower()
         if data_type == "yml":
             data_type = "yaml"
     if data_type not in ("json", "yaml", "toml"):
@@ -160,16 +160,16 @@ def _read_from_file(
 ):
     path = _Path(path).resolve()
     if not path.is_file():
-        raise _exception.read.PySerialsMissingFileError(filepath=path)
+        raise _exception.read.PySerialsMissingFileError(data_type=data_type, filepath=path)
     data = path.read_text()
     if data.strip() == "":
-        raise _exception.read.PySerialsEmptyFileError(filepath=path)
+        raise _exception.read.PySerialsEmptyFileError(data_type=data_type, filepath=path)
     try:
         content = loader(data)
     except exception as e:
-        raise _exception.read.PySerialsInvalidDataFileError(
-            filepath=path, data_type=data_type, data=data
-        ) from e
+        raise _exception.read.PySerialsInvalidDataError(
+            source_type="file", filepath=path, data_type=data_type, data=data, cause=e
+        ) from None
     return content
 
 
@@ -184,7 +184,9 @@ def _read_from_string(
     try:
         content = loader(data)
     except exception as e:
-        raise _exception.read.PySerialsInvalidDataStringError(data_type=data_type, data=data) from e
+        raise _exception.read.PySerialsInvalidDataError(
+            source_type="string", data_type=data_type, data=data, cause=e
+        ) from None
     return content
 
 

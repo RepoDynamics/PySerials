@@ -63,8 +63,8 @@ def jsonschema(
 
         return _jsonschema.validators.extend(validator_class, {"properties": set_defaults})
 
-    validator = _extend_with_default(validator) if fill_defaults else validator
     error_args = {"data": data, "schema": schema, "validator": validator, "registry": registry}
+    validator = _extend_with_default(validator) if fill_defaults else validator
     try:
         validator_instance = validator(schema, registry=registry) if registry else validator(schema)
     except (
@@ -84,5 +84,5 @@ def jsonschema(
             errors = [e]
     if raise_invalid_data and errors:
         error_args["validator"] = validator_instance
-        raise _exception.validate.PySerialsJsonSchemaValidationError(**error_args, errors=errors)
+        raise _exception.validate.PySerialsJsonSchemaValidationError(**error_args, causes=errors)
     return errors

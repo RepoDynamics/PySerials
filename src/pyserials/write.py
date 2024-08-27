@@ -23,7 +23,8 @@ def to_yaml_string(
     data: dict | list | str | int | float | bool | _yaml.CommentedMap | _yaml.CommentedSeq,
     end_of_file_newline: bool = True,
 ) -> str:
-    return _yaml.YAML(typ=["rt", "string"]).dumps(data, add_final_eol=end_of_file_newline)
+    yaml_syntax = _yaml.YAML(typ=["rt", "string"]).dumps(data, add_final_eol=False).removesuffix("\n...")
+    return f"{yaml_syntax}\n" if end_of_file_newline else yaml_syntax
 
 
 def to_toml_string(
