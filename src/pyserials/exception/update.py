@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Any as _Any, Literal as _Literal
 
-from markitup.html import elem as _html
+import mdit as _mdit
 
 from pyserials.exception import _base
 
@@ -26,18 +26,23 @@ class PySerialsUpdateException(_base.PySerialsException):
         path: str,
         data: dict | list | str | int | float | bool,
         data_full: dict | list | str | int | float | bool,
-        description: str,
-        description_html: str | _html.Element | None = None,
+        problem,
+        section: dict | None = None,
     ):
-        message_template = "Failed to update data at {path}."
-        path_console, path_html = _base.format_code(path)
-        super().__init__(
-            message=message_template.format(path=path_console),
-            message_html=message_template.format(path=path_html),
-            description=description,
-            description_html=description_html,
-            report_heading="PySerials Update Error Report",
+        intro = _mdit.inline_container(
+            "Failed to update data at ",
+            _mdit.element.code_span(path),
+            "."
         )
+        report = _mdit.document(
+            heading="Data Update Error",
+            body={
+                "intro": intro,
+                "problem": problem,
+            },
+            section=section,
+        )
+        super().__init__(report)
         self.path = path
         self.data = data
         self.data_full = data_full
@@ -66,31 +71,25 @@ class PySerialsUpdateDictFromAddonError(PySerialsUpdateException):
     ):
         self.type_data = type(data)
         self.type_data_addon = type(data_addon)
-        type_data_console, type_data_html = _base.format_code(self.type_data.__name__)
-        type_data_addon_console, type_data_addon_html = _base.format_code(self.type_data_addon.__name__)
-        path_console, path_html = _base.format_code(path)
-        kwargs_console, kwargs_html = (
-            {"path": path, "type_data": type_data, "type_data_addon": type_data_addon}
-            for path, type_data, type_data_addon in zip(
-                (path_console, path_html),
-                (type_data_console, type_data_html),
-                (type_data_addon_console, type_data_addon_html),
-            )
-        )
-        description_template = (
-            "There was a duplicate in the addon dictionary; "
-            "the value of type {type_data_addon} already exists in the source data."
-        ) if problem_type == "duplicate" else (
-            "There was a type mismatch between the source and addon dictionary values; "
-            "the value is of type {type_data} in the source data, "
-            "but of type {type_data_addon} in the addon data."
+        problem = _mdit.inline_container(
+            "There was a duplicate in the addon dictionary: ",
+            "the value of type",
+            _mdit.element.code_span(self.type_data_addon.__name__),
+            " already exists in the source data."
+        ) if problem_type == "duplicate" else _mdit.inline_container(
+            "There was a type mismatch between the source and addon dictionary values: ",
+            "the value is of type ",
+            _mdit.element.code_span(self.type_data.__name__),
+            " in the source data, ",
+            "but of type ",
+            _mdit.element.code_span(self.type_data_addon.__name__),
+            " in the addon data."
         )
         super().__init__(
-            description=description_template.format(**kwargs_console),
-            description_html=description_template.format(**kwargs_html),
             path=path,
             data=data,
             data_full=data_full,
+            problem=problem,
         )
         self.problem_type: _Literal["duplicate", "type_mismatch"] = problem_type
         self.data_addon = data_addon
@@ -124,16 +123,16 @@ class PySerialsUpdateTemplatedDataError(PySerialsUpdateException):
         template_start: str,
         template_end: str,
     ):
-        path_invalid_console, path_invalid_html = _base.format_code(path_invalid.replace("'", ""))
-        super().__init__(
-            description=description_template.format(path_invalid=path_invalid_console),
-            description_html=description_template.format(path_invalid=path_invalid_html),
-            path=path.replace("'", ""),
-            data=data,
-            data_full=data_full,
-        )
-        self.path_invalid = path_invalid
+        self.path_invalid = path_invalid.replace("'", "")
         self.data_source = data_source
         self.template_start = template_start
         self.template_end = template_end
+        parts = description_template.split("{path_invalid}")
+        parts.insert(1, _mdit.element.code_span(self.path_invalid))
+        super().__init__(
+            path=path.replace("'", ""),
+            data=data,
+            data_full=data_full,
+            problem=_mdit.inline_container(*parts),
+        )
         return

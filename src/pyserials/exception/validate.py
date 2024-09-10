@@ -1,11 +1,12 @@
 """Exceptions raised by `pyserials.validate` module."""
 
 from __future__ import annotations
-from typing import Any as _Any, Literal as _Literal
+from typing import Any as _Any
 
 import jsonschema as _jsonschema
-from markitup.html import elem as _html
-from markitup.md import elem as _md
+import mdit as _mdit
+from pyprotocol import Stringable
+
 from pyserials import write as _write
 from pyserials.exception import _base
 
@@ -25,23 +26,27 @@ class PySerialsValidateException(_base.PySerialsException):
 
     def __init__(
         self,
-        description: str,
+        problem: str,
         data: dict | list | str | int | float | bool,
         schema: dict,
         validator: _Any,
         registry: _Any = None,
-        description_html: str | _html.Element | None = None,
+        section: dict | None = None,
     ):
-        validator_name = validator.__class__.__name__
-        message_template = "Failed to validate data against schema using validator {validator_name}."
-        validator_name_console, validator_name_html = _base.format_code(validator_name)
-        super().__init__(
-            message=message_template.format(validator_name=validator_name_console),
-            message_html=message_template.format(validator_name=validator_name_html),
-            description=description,
-            description_html=description_html,
-            report_heading="PySerials Schema Validation Error Report",
+        intro = _mdit.inline_container(
+            "Failed to validate data against schema using validator ",
+            _mdit.element.code_span(validator.__class__.__name__),
+            "."
         )
+        report = _mdit.document(
+            heading="Schema Validation Error",
+            body={
+                "intro": intro,
+                "problem": problem,
+            },
+            section=section,
+        )
+        super().__init__(report)
         self.data = data
         self.schema = schema
         self.validator = validator
@@ -60,7 +65,7 @@ class PySerialsInvalidJsonSchemaError(PySerialsValidateException):
         registry: _Any = None,
     ):
         super().__init__(
-            description="The schema is invalid.",
+            problem="The schema is invalid.",
             data=data,
             schema=schema,
             validator=validator,
@@ -81,10 +86,9 @@ class PySerialsJsonSchemaValidationError(PySerialsValidateException):
         registry: _Any = None,
     ):
         self.causes = causes
-        description, description_html = self._parse_errors()
         super().__init__(
-            description=description,
-            description_html=description_html,
+            problem=self._generate_problem_statement(),
+            section={idx: self._generate_error_report(error) for idx, error in enumerate(self.causes)},
             data=data,
             schema=schema,
             validator=validator,
@@ -92,133 +96,92 @@ class PySerialsJsonSchemaValidationError(PySerialsValidateException):
         )
         return
 
-    def _report_content(
-        self, mode: _Literal["full", "short"], md: bool
-    ) -> list[str | _html.Element] | str | _html.Element | None:
-        html_details = []
-        for idx, error in enumerate(self.causes):
-            section_html = self._report_error(error, section=[idx + 1], mode=mode, md=md)
-            html_details.append(section_html)
-        return _html.ul([_html.li(detail) for detail in html_details])
+    def _generate_problem_statement(self):
+        error_paths = [_mdit.element.code_span(error.json_path) for error in self.causes]
+        error_paths_str = self._join_list(error_paths)
+        count_errors = len(error_paths)
+        problem = _mdit.inline_container(
+            "Found ",
+            "an error " if count_errors == 1 else f"{count_errors} errors ",
+            "in the data at ",
+            error_paths_str,
+            "."
+        )
+        return problem
 
-    def _parse_errors(self) -> tuple[str, str]:
-        count_errors = len(self.causes)
-        errors = "an error" if count_errors == 1 else f"{count_errors} errors"
-        intro = intro_html = f"Found {errors} in the data at "
-        reports = []
-        errors_loc = []
-        errors_loc_html = []
-        for idx, error in enumerate(self.causes):
-            error_loc, error_loc_html = _base.format_code(error.json_path)
-            errors_loc.append(error_loc)
-            errors_loc_html.append(error_loc_html)
-            section_console = self._parse_error(error, section=[idx + 1])
-            reports.extend(section_console)
-        reports_str = "\n".join(reports)
-        if len(errors_loc) == 1:
-            errors_loc_str = errors_loc[0]
-            errors_loc_html_str = errors_loc_html[0]
-        elif len(errors_loc) == 2:
-            errors_loc_str = " and ".join(errors_loc)
-            errors_loc_html_str = " and ".join(errors_loc_html)
-        else:
-            errors_loc_str = ", ".join(errors_loc[:-1]) + " and " + errors_loc[-1]
-            errors_loc_html_str = ", ".join(errors_loc_html[:-1]) + " and " + errors_loc_html[-1]
-        intro += f"{errors_loc_str}:\n\n{reports_str}"
-        intro_html += f"{errors_loc_html_str}."
-        return intro, intro_html
-
-    def _parse_error(
+    def _generate_error_report(
         self,
         error: _jsonschema.exceptions.ValidationError,
-        section: list[int]
-    ) -> list:
-        schema_path = self._create_path(error.absolute_schema_path)
-        title, _ = _base.format_code(error.json_path)
-        console = [
-            _base.ansi_heading(section, title),
-            f"- {_base.ansi_bold('Problem')}: {self._parse_error_message(error)}",
-            f"- {_base.ansi_bold("Validator Path")}: {schema_path}",
+    ) -> _mdit.Document:
+        problem = self._parse_error_message(error)
+        short_ver_fieldlist_items = [
+            _mdit.element.field_list_item("Problem", problem),
+            _mdit.element.field_list_item(
+                "Validator Path", _mdit.element.code_span(self._create_path(error.absolute_schema_path))
+            ),
         ]
-        if error.context:
-            console.append(f"- {_base.ansi_bold("Context")}:")
-            for idx, sub_error in enumerate(sorted(error.context, key=lambda x: len(x.context))):
-                sub_console = self._parse_error(
-                    sub_error,
-                    section=section + [idx+1]
-                )
-                console.extend(self._indent(sub_console, 2))
-        return console
-
-    def _report_error(
-        self,
-        error: _jsonschema.exceptions.ValidationError,
-        section: list[int],
-        mode: _Literal["full", "short"],
-        md: bool
-    ) -> _html.Details:
-        details = [
-            _html.p(f"{_html.b("Problem")}: {self._parse_error_message(error)}"),
-            self._create_validator_details(error, mode=mode, md=md),
-            self._create_schema_details(error, mode=mode, md=md),
-            self._create_instance_details(error, mode=mode, md=md),
+        full_ver_items = [
+            _mdit.inline_container(problem),
+            self._make_yaml_code_admo(
+                admo_type="error",
+                title="Validator",
+                title_details=str(error.validator),
+                content=error.validator_value,
+            ),
+            self._make_yaml_code_admo(
+                admo_type="error",
+                title="Schema",
+                title_details=self._create_path(error.absolute_schema_path),
+                content=error.schema,
+            ),
+            self._make_yaml_code_admo(
+                admo_type="error",
+                title="Instance",
+                title_details=self._create_path(error.absolute_path),
+                content=error.instance,
+            ),
         ]
+        section = {}
         if error.context:
-            contexts = []
+            context_paths = []
             for idx, sub_error in enumerate(sorted(error.context, key=lambda x: len(x.context))):
-                sub_html = self._report_error(
-                    sub_error,
-                    section=section + [idx+1],
-                    mode=mode,
-                    md=md,
+                section[idx] = self._generate_error_report(sub_error)
+                context_paths.append(_mdit.element.code_span(sub_error.json_path))
+            context_paths_joined = self._join_list(context_paths)
+            short_ver_fieldlist_items.insert(
+                1,
+                _mdit.element.field_list_item(
+                    f"Context Path{'s' if len(context_paths) > 1 else ''}",
+                    context_paths_joined
                 )
-                contexts.append(sub_html)
-            context_list = _html.ul([_html.li(context) for context in contexts])
-            details.append(f"{_html.b("Context")}: {context_list}")
-        _, title = _base.format_code(error.json_path)
-        html = _html.details(
-            [_html.summary(title), _html.ul([_html.li(elem) for elem in details])]
+            )
+            err = "an error" if len(context_paths) == 1 else f"{len(context_paths)} errors"
+            full_ver_items[0].append(
+                f" This was caused by {err} at {context_paths_joined}.",
+            )
+        doc = _mdit.document(
+            heading=_mdit.element.code_span(error.json_path),
+            body={
+                "short": (_mdit.element.field_list(short_ver_fieldlist_items), ("short", "console")),
+                "full": (_mdit.element.field_list(full_ver_items), "full"),
+            },
+            section=section,
         )
-        return html
-
-    def _create_validator_details(self, error: _jsonschema.exceptions.ValidationError, mode: _Literal["full", "short"], md: bool) -> _html.Details:
-        summary = self._create_details_summary("Validator", str(error.validator))
-        return summary if mode == "short" else self._make_details(
-            content=error.validator_value,
-            summary=summary,
-            md=md,
-        )
-
-    def _create_schema_details(self, error: _jsonschema.exceptions.ValidationError, mode: _Literal["full", "short"], md: bool) -> _html.Details:
-        summary = self._create_details_summary("Schema", self._create_path(error.absolute_schema_path))
-        return summary if mode == "short" else self._make_details(
-            content=error.schema,
-            summary=summary,
-            md=md,
-        )
-
-    def _create_instance_details(self, error: _jsonschema.exceptions.ValidationError, mode: _Literal["full", "short"], md: bool) -> _html.Details:
-        summary = self._create_details_summary("Instance", self._create_path(error.absolute_path))
-        return summary if mode == "short" else self._make_details(
-            content=error.instance,
-            summary=summary,
-            md=md,
-        )
+        return doc
 
     @staticmethod
-    def _make_details(content: dict, summary: str, md: bool) -> _html.Details:
-        yaml = _write.to_yaml_string(content, end_of_file_newline=False)
-        details_summary = _html.summary(summary)
-        details_content = _html.pre(
-            _html.code(yaml, {"class": "language-yaml"})
-        ) if not md else _md.code_fence(yaml, info="yaml")
-        return _html.details([details_summary, details_content])
-
-    def _create_title(self, error: _jsonschema.exceptions.ValidationError) -> tuple[str, str]:
-        problem = self._parse_error_message(error)
-        title_shell = f"'{error.json_path}': {problem}"
-        title_html = f"{_html.code(error.json_path)}: {problem}"
-        return title_shell, title_html
+    def _make_yaml_code_admo(admo_type: str, title: str, title_details: str, content: dict) -> _mdit.element.Admonition:
+        code_block = _mdit.element.code_block(
+            content=_write.to_yaml_string(content, end_of_file_newline=False),
+            language="yaml",
+        )
+        admo = _mdit.element.admonition(
+            type=admo_type,
+            title=_mdit.inline_container(f"**{title}**: ", _mdit.element.code_span(title_details)),
+            content=code_block,
+            dropdown=True,
+        )
+        return admo
 
     @staticmethod
     def _parse_error_message(error: _jsonschema.exceptions.ValidationError) -> str:
@@ -228,16 +191,26 @@ class PySerialsJsonSchemaValidationError(PySerialsValidateException):
             problem = f"Data {msg}"
         else:
             problem = error.message
-        return problem
-
-    @staticmethod
-    def _indent(text: list, indent: int = 2) -> list:
-        return [f"{' ' * indent}{line}" for line in text]
+        return f"{problem.removeprefix(".")}."
 
     @staticmethod
     def _create_path(path):
         return "$." + ".".join(str(path_component) for path_component in path)
 
     @staticmethod
-    def _create_details_summary(title: str, code: str) -> str:
-        return f"{_html.b(title)}: {_html.code(code)}"
+    def _join_list(
+        items: list,
+        sep: Stringable = ", ",
+        sep_last: Stringable = ", and ",
+        sep_pair: Stringable = " and ",
+    ) -> Stringable:
+        if len(items) == 1:
+            return items[0]
+        elif len(items) == 2:
+            return _mdit.inline_container(items[0], sep_pair, items[1])
+        container = []
+        for item in items[:-1]:
+            container.extend([item, sep])
+        container.pop()
+        container.extend([sep_last, items[-1]])
+        return _mdit.inline_container(*container)

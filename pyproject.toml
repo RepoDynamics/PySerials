@@ -17,14 +17,14 @@ namespaces = true
 # ----------------------------------------- Project Metadata -------------------------------------
 #
 [project]
-version = "0.0.0.dev5"
+version = "0.0.0.dev6"
 name = "PySerials"
 dependencies = [
     "jsonschema >= 4.21.0, < 5",
     "ruamel.yaml >= 0.17.32, < 0.18", # https://yaml.readthedocs.io/en/stable/
     "ruamel.yaml.string >= 0.1.1, < 1",
     "tomlkit >= 0.11.8, < 0.12", # https://tomlkit.readthedocs.io/en/stable/,
-    "markitup",
+    "mdit",
     "ansi-sgr",
     "ExceptionMan",
     "jsonpath-ng >= 1.6.1, < 2",
