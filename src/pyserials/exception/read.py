@@ -35,12 +35,13 @@ class PySerialsReadException(_base.PySerialsException):
         filepath: _Path | None = None,
     ):
         intro = _mdit.inline_container(
-            "Failed to read ",
-            f"{data_type.upper()} data " if data_type else "data ",
-            "from input ",
+            "Failed to read",
+            f"{data_type.upper()} data" if data_type else "data",
+            "from input",
             "string." if source_type == "string" else _mdit.inline_container(
                 "file at ", _mdit.element.code_span(filepath), "."
             ),
+            separator=" ",
         )
         report = _mdit.document(
             heading="Data Read Error",
@@ -175,7 +176,7 @@ class PySerialsInvalidDataError(PySerialsReadException):
 
     def _report_content(self) -> dict:
 
-        def make_tabel(problem, line, column, data_type):
+        def make_table(problem, line, column, data_type):
             items = [
                 _mdit.element.field_list_item(title=title, description=value) for title, value in [
                     ["Description", problem],
@@ -188,16 +189,16 @@ class PySerialsInvalidDataError(PySerialsReadException):
 
         content = {
             "problem_details": _mdit.element.admonition(
+                make_table(self.problem, self.problem_line, self.problem_column, self.problem_data_type),
                 type="error",
                 title="Problem",
-                content=make_tabel(self.problem, self.problem_line, self.problem_column, self.problem_data_type)
             )
         }
         if self.context:
             content["context_details"] = _mdit.element.admonition(
+                make_table(self.context, self.context_line, self.context_column, self.context_data_type),
                 type="note",
                 title="Context",
-                content=make_tabel(self.context, self.context_line, self.context_column, self.context_data_type)
             )
 
         code_block_full = _mdit.element.code_block(
@@ -235,6 +236,6 @@ class PySerialsInvalidDataError(PySerialsReadException):
                 emphasize_lines=list({1, len(selected_lines)}),
             )
         content["data_short"] = (code_block_short, ("short", "console"))
-        container = _mdit.block_container(**content)
+        container = _mdit.block_container(content)
         doc = _mdit.document(heading="Error Details", body=container)
         return {"details": doc}

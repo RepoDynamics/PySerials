@@ -26,7 +26,7 @@ class PySerialsValidateException(_base.PySerialsException):
 
     def __init__(
         self,
-        problem: str,
+        problem,
         data: dict | list | str | int | float | bool,
         schema: dict,
         validator: _Any,
@@ -88,7 +88,7 @@ class PySerialsJsonSchemaValidationError(PySerialsValidateException):
         self.causes = causes
         super().__init__(
             problem=self._generate_problem_statement(),
-            section={idx: self._generate_error_report(error) for idx, error in enumerate(self.causes)},
+            section={str(idx): self._generate_error_report(error) for idx, error in enumerate(self.causes)},
             data=data,
             schema=schema,
             validator=validator,
@@ -145,7 +145,7 @@ class PySerialsJsonSchemaValidationError(PySerialsValidateException):
         if error.context:
             context_paths = []
             for idx, sub_error in enumerate(sorted(error.context, key=lambda x: len(x.context))):
-                section[idx] = self._generate_error_report(sub_error)
+                section[str(idx)] = self._generate_error_report(sub_error)
                 context_paths.append(_mdit.element.code_span(sub_error.json_path))
             context_paths_joined = self._join_list(context_paths)
             short_ver_fieldlist_items.insert(
@@ -163,7 +163,7 @@ class PySerialsJsonSchemaValidationError(PySerialsValidateException):
             heading=_mdit.element.code_span(error.json_path),
             body={
                 "short": (_mdit.element.field_list(short_ver_fieldlist_items), ("short", "console")),
-                "full": (_mdit.element.field_list(full_ver_items), "full"),
+                "full": (_mdit.block_container(*full_ver_items), "full"),
             },
             section=section,
         )
@@ -176,9 +176,9 @@ class PySerialsJsonSchemaValidationError(PySerialsValidateException):
             language="yaml",
         )
         admo = _mdit.element.admonition(
+            code_block,
             type=admo_type,
             title=_mdit.inline_container(f"**{title}**: ", _mdit.element.code_span(title_details)),
-            content=code_block,
             dropdown=True,
         )
         return admo
