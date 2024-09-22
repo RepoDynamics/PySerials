@@ -5,7 +5,7 @@ from typing import Any as _Any
 
 import jsonschema as _jsonschema
 import mdit as _mdit
-from pyprotocol import Stringable
+from protocolman import Stringable
 
 from pyserials import write as _write
 from pyserials.exception import _base
