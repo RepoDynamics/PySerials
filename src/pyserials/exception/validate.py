@@ -176,9 +176,9 @@ class PySerialsJsonSchemaValidationError(PySerialsValidateException):
             language="yaml",
         )
         admo = _mdit.element.admonition(
-            code_block,
-            type=admo_type,
             title=_mdit.inline_container(f"**{title}**: ", _mdit.element.code_span(title_details)),
+            body=code_block,
+            type=admo_type,
             dropdown=True,
         )
         return admo
