@@ -1,7 +1,7 @@
 """Exceptions raised by `pyserials.read` module."""
 
 from __future__ import annotations
-from typing import Literal as _Literal, TYPE_CHECKING as _TYPE_CHECKING
+from typing import Literal as _Literal
 from pathlib import Path as _Path
 
 import ruamel.yaml as _yaml
@@ -178,7 +178,7 @@ class PySerialsInvalidDataError(PySerialsReadException):
 
         def make_table(problem, line, column, data_type):
             items = [
-                _mdit.element.field_list_item(title=title, description=value) for title, value in [
+                _mdit.element.field_list_item(title=title, body=value) for title, value in [
                     ["Description", problem],
                     ["Line Number", line],
                     ["Column Number", column],
@@ -189,16 +189,16 @@ class PySerialsInvalidDataError(PySerialsReadException):
 
         content = {
             "problem_details": _mdit.element.admonition(
-                make_table(self.problem, self.problem_line, self.problem_column, self.problem_data_type),
-                type="error",
                 title="Problem",
+                body=make_table(self.problem, self.problem_line, self.problem_column, self.problem_data_type),
+                type="error",
             )
         }
         if self.context:
             content["context_details"] = _mdit.element.admonition(
-                make_table(self.context, self.context_line, self.context_column, self.context_data_type),
-                type="note",
                 title="Context",
+                body=make_table(self.context, self.context_line, self.context_column, self.context_data_type),
+                type="note",
             )
 
         code_block_full = _mdit.element.code_block(
