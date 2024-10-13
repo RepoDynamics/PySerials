@@ -49,9 +49,10 @@ def jsonschema(
         validate_properties = validator_class.VALIDATORS["properties"]
 
         def set_defaults(validator, properties, instance, schema):
-            for property, subschema in properties.items():
-                if "default" in subschema:
-                    instance.setdefault(property, subschema["default"])
+            if isinstance(instance, dict):  # The entire dict instance may be templated
+                for property, subschema in properties.items():
+                    if "default" in subschema:
+                        instance.setdefault(property, subschema["default"])
 
             for error in validate_properties(
                 validator,
