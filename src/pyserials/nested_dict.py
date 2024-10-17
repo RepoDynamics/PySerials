@@ -18,7 +18,7 @@ class NestedDict:
         template_marker_unpack_start: str = "*{{",
         template_marker_unpack_end: str = "}}",
         template_implicit_root: bool = True,
-        template_stringer: Callable[[str], str] = None,
+        template_stringer: Callable[[str], str] = str,
         template_ignore_key_regex: str | None = None,
     ):
         self._data = data or {}
