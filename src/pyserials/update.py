@@ -1,10 +1,14 @@
-from typing import Literal as _Literal
+from __future__ import annotations as _annotations
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 import re as _re
 
 import jsonpath_ng as _jsonpath
 from jsonpath_ng import exceptions as _jsonpath_exceptions
 
 import pyserials.exception as _exception
+
+if _TYPE_CHECKING:
+    from typing import Literal, Callable
 
 
 def dict_from_addon(
@@ -18,7 +22,7 @@ def dict_from_addon(
     """Recursively update a dictionary from another dictionary."""
     def recursive(source: dict, add: dict, path: str, log: dict):
 
-        def raise_error(typ: _Literal["duplicate", "type_mismatch"]):
+        def raise_error(typ: Literal["duplicate", "type_mismatch"]):
             raise _exception.update.PySerialsUpdateDictFromAddonError(
                 problem_type=typ,
                 path=fullpath,
@@ -89,15 +93,23 @@ class TemplateFiller:
         self,
         marker_start: str = "${{",
         marker_end: str = "}}",
+        marker_start_unpack: str = "*{{",
+        marker_end_unpack: str = "}}",
         implicit_root: bool = True,
+        stringer: Callable[[str], str] = str,
     ):
+        def make_regex(start, end):
+            start_esc = _re.escape(start)
+            end_esc = _re.escape(end)
+            regex_sub = rf"{start_esc}([^{end_esc}]+){end_esc}"
+            return _re.compile(regex_sub)
+
         self._marker_start = marker_start
         self._marker_end = marker_end
-        start = _re.escape(marker_start)
-        end = _re.escape(marker_end)
-        regex_sub = rf"{start}([^{end}]+){end}"
-        self._pattern_template = _re.compile(regex_sub)
+        self._pattern_template = make_regex(marker_start, marker_end)
+        self._pattern_template_unpack = make_regex(marker_start_unpack, marker_end_unpack)
         self._add_prefix = implicit_root
+        self._stringer = stringer
         self._data = None
         self._source = None
         self._recursive = None
@@ -211,15 +223,20 @@ class TemplateFiller:
             if match_whole_str:
                 return get_address_value(match_whole_str)
             return self._pattern_template.sub(
-                lambda x: str(get_address_value(x)),
+                lambda x: self._stringer(get_address_value(x)),
                 templ
             )
         if isinstance(templ, list):
-            return [
-                self._recursive_subst(
+            out = []
+            for idx, elem in enumerate(templ):
+                elem_filled = self._recursive_subst(
                     elem, f"{current_path}[{idx}]", always_list
-                ) for idx, elem in enumerate(templ)
-            ]
+                )
+                if self._pattern_template_unpack.fullmatch(elem):
+                    out.extend(elem_filled)
+                else:
+                    out.append(elem_filled)
+            return out
         if isinstance(templ, dict):
             new_dict = {}
             for key, val in templ.items():
