@@ -93,8 +93,8 @@ class TemplateFiller:
         self,
         marker_start: str = "${{",
         marker_end: str = "}}",
-        marker_start_unpack: str = "*{{",
-        marker_end_unpack: str = "}}",
+        marker_unpack_start: str = "*{{",
+        marker_unpack_end: str = "}}",
         implicit_root: bool = True,
         stringer: Callable[[str], str] = str,
     ):
@@ -107,7 +107,7 @@ class TemplateFiller:
         self._marker_start = marker_start
         self._marker_end = marker_end
         self._pattern_template = make_regex(marker_start, marker_end)
-        self._pattern_template_unpack = make_regex(marker_start_unpack, marker_end_unpack)
+        self._pattern_template_unpack = make_regex(marker_unpack_start, marker_unpack_end)
         self._add_prefix = implicit_root
         self._stringer = stringer
         self._data = None
@@ -115,6 +115,7 @@ class TemplateFiller:
         self._recursive = None
         self._path = None
         self._raise_no_match = None
+        self._ignore_key_regex = None
         return
 
     def fill(
@@ -125,11 +126,13 @@ class TemplateFiller:
         always_list: bool = True,
         recursive: bool = True,
         raise_no_match: bool = True,
+        ignore_key_regex: str | None = None,
     ):
         self._data = templated_data
         self._source = source_data
         self._recursive = recursive
         self._raise_no_match = raise_no_match
+        self._ignore_key_regex = ignore_key_regex
         return self._recursive_subst(
             templ=self._data,
             current_path=(f"$.{current_path}" if self._add_prefix else current_path) if current_path else "$",
@@ -232,7 +235,7 @@ class TemplateFiller:
                 elem_filled = self._recursive_subst(
                     elem, f"{current_path}[{idx}]", always_list
                 )
-                if self._pattern_template_unpack.fullmatch(elem):
+                if isinstance(elem, str) and self._pattern_template_unpack.fullmatch(elem):
                     out.extend(elem_filled)
                 else:
                     out.append(elem_filled)
@@ -241,6 +244,9 @@ class TemplateFiller:
             new_dict = {}
             for key, val in templ.items():
                 key_filled = self._recursive_subst(key, current_path, always_list=False)
+                if self._ignore_key_regex and _re.match(self._ignore_key_regex, key_filled):
+                    new_dict[key_filled] = val
+                    continue
                 new_dict[key_filled] = self._recursive_subst(
                     val, f"{current_path}.'{key_filled}'", always_list=always_list
                 )

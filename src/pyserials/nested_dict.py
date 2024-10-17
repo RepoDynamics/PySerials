@@ -1,4 +1,11 @@
+from __future__ import annotations as _annotations
+
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
 import pyserials as _ps
+
+if _TYPE_CHECKING:
+    from typing import Callable
 
 
 class NestedDict:
@@ -8,14 +15,22 @@ class NestedDict:
         data: dict | None = None,
         template_marker_start: str = "${{",
         template_marker_end: str = "}}",
+        template_marker_unpack_start: str = "*{{",
+        template_marker_unpack_end: str = "}}",
         template_implicit_root: bool = True,
+        template_stringer: Callable[[str], str] = None,
+        template_ignore_key_regex: str | None = None,
     ):
         self._data = data or {}
         self._templater = _ps.update.TemplateFiller(
             marker_start=template_marker_start,
             marker_end=template_marker_end,
+            marker_unpack_start=template_marker_unpack_start,
+            marker_unpack_end=template_marker_unpack_end,
             implicit_root=template_implicit_root,
+            stringer=template_stringer,
         )
+        self._ignore_key_regex = template_ignore_key_regex
         return
 
     def fill(
@@ -30,7 +45,9 @@ class NestedDict:
             value = self.__getitem__(path)
         if not value:
             return
-        filled_value = self.fill_data(data=value, current_path=path, always_list=always_list, recursive=recursive)
+        filled_value = self.fill_data(
+            data=value, current_path=path, always_list=always_list, recursive=recursive,
+        )
         if not path:
             self._data = filled_value
         else:
@@ -50,6 +67,7 @@ class NestedDict:
             current_path=current_path,
             always_list=always_list,
             recursive=recursive,
+            ignore_key_regex=self._ignore_key_regex,
         )
 
     def __call__(self):
