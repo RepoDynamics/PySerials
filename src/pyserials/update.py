@@ -8,7 +8,7 @@ from jsonpath_ng import exceptions as _jsonpath_exceptions
 import pyserials.exception as _exception
 
 if _TYPE_CHECKING:
-    from typing import Literal, Callable
+    from typing import Literal, Callable, Sequence
 
 
 def dict_from_addon(
@@ -87,6 +87,18 @@ def data_from_jsonschema(data: dict | list, schema: dict) -> None:
     return
 
 
+def remove_keys(data: dict | list, keys: str | Sequence[str]):
+    def recursive_pop(d):
+        if isinstance(d, dict):
+            return {k: recursive_pop(v) for k, v in d.items() if k not in keys}
+        if isinstance(d, list):
+            return [recursive_pop(v) for v in d]
+        return d
+    if isinstance(keys, str):
+        keys = [keys]
+    return recursive_pop(data)
+
+
 class TemplateFiller:
 
     def __init__(
@@ -115,7 +127,8 @@ class TemplateFiller:
         self._recursive = None
         self._path = None
         self._raise_no_match = None
-        self._ignore_key_regex = None
+        self._template_keys = None
+        self._ignore_templates = True
         return
 
     def fill(
@@ -126,20 +139,41 @@ class TemplateFiller:
         always_list: bool = True,
         recursive: bool = True,
         raise_no_match: bool = True,
-        ignore_key_regex: str | None = None,
+        relative_template_keys: list[str] | None = None,
     ):
         self._data = templated_data
         self._source = source_data
         self._recursive = recursive
         self._raise_no_match = raise_no_match
-        self._ignore_key_regex = ignore_key_regex
+        self._template_keys = relative_template_keys or []
+        path = (f"$.{current_path}" if self._add_prefix else current_path) if current_path else "$"
+        if not relative_template_keys:
+            self._ignore_templates = False
+            return self._recursive_subst(
+                templ=self._data,
+                current_path=path,
+                always_list=always_list,
+                relative_path_anchor=path,
+            )
+        self._ignore_templates = True
+        first_pass = self._recursive_subst(
+            templ=self._data,
+            current_path=path,
+            always_list=always_list,
+            relative_path_anchor=path,
+        )
+        if self._data is self._source:
+            self._source = first_pass
+        self._data = first_pass
+        self._ignore_templates = False
         return self._recursive_subst(
             templ=self._data,
-            current_path=(f"$.{current_path}" if self._add_prefix else current_path) if current_path else "$",
-            always_list=always_list
+            current_path=path,
+            always_list=always_list,
+            relative_path_anchor=path,
         )
 
-    def _recursive_subst(self, templ, current_path: str, always_list: bool):
+    def _recursive_subst(self, templ, current_path: str, always_list: bool, relative_path_anchor: str):
 
         def raise_error(
             path_invalid: str,
@@ -173,7 +207,7 @@ class TemplateFiller:
             left_matches = _rec_match(expr.left)
             for left_match in left_matches:
                 left_match_filled = self._recursive_subst(
-                    left_match.value, current_path=str(expr.left), always_list=False
+                    left_match.value, current_path=str(expr.left), always_list=False, relative_path_anchor=str(expr.left)
                 ) if isinstance(left_match.value, str) else left_match.value
                 right_matches = expr.right.find(left_match_filled)
                 whole_matches.extend(right_matches)
@@ -192,8 +226,13 @@ class TemplateFiller:
                     path_invalid=path,
                     description_template="JSONPath expression {path_invalid} is invalid.",
                 )
+            if self._ignore_templates:
+                path_fields = self._extract_fields(path_expr)
+                has_template_key = any(field in self._template_keys for field in path_fields)
+                if has_template_key:
+                    return re_match.string
             if num_periods:
-                root_path_expr = _jsonpath.parse(current_path)
+                root_path_expr = _jsonpath.parse(relative_path_anchor)
                 for period in range(num_periods):
                     if isinstance(root_path_expr, _jsonpath.Root):
                         raise_error(
@@ -219,10 +258,24 @@ class TemplateFiller:
             output = values[0] if single else values
             if not self._recursive:
                 return output
-            return self._recursive_subst(output, current_path=str(jsonpath), always_list=always_list)
+            if relative_path_anchor == current_path:
+                path_fields = self._extract_fields(jsonpath)
+                has_template_key = any(field in self._template_keys for field in path_fields)
+                _rel_path_anchor = current_path if has_template_key else str(jsonpath)
+            else:
+                _rel_path_anchor = relative_path_anchor
+            return self._recursive_subst(
+                output,
+                current_path=str(jsonpath),
+                always_list=always_list,
+                relative_path_anchor=_rel_path_anchor
+            )
+
+        def get_relative_path(new_path):
+            return new_path if current_path == relative_path_anchor else relative_path_anchor
 
         if isinstance(templ, str):
-            match_whole_str = self._pattern_template.fullmatch(templ)
+            match_whole_str = self._pattern_template.fullmatch(templ) or self._pattern_template_unpack.fullmatch(templ)
             if match_whole_str:
                 return get_address_value(match_whole_str)
             return self._pattern_template.sub(
@@ -232,8 +285,9 @@ class TemplateFiller:
         if isinstance(templ, list):
             out = []
             for idx, elem in enumerate(templ):
+                new_path = f"{current_path}[{idx}]"
                 elem_filled = self._recursive_subst(
-                    elem, f"{current_path}[{idx}]", always_list
+                    templ=elem, current_path=new_path, always_list=always_list, relative_path_anchor=get_relative_path(new_path),
                 )
                 if isinstance(elem, str) and self._pattern_template_unpack.fullmatch(elem):
                     out.extend(elem_filled)
@@ -243,12 +297,15 @@ class TemplateFiller:
         if isinstance(templ, dict):
             new_dict = {}
             for key, val in templ.items():
-                key_filled = self._recursive_subst(key, current_path, always_list=False)
-                if self._ignore_key_regex and _re.match(self._ignore_key_regex, key_filled):
+                key_filled = self._recursive_subst(
+                    templ=key, current_path=current_path, always_list=False, relative_path_anchor=relative_path_anchor,
+                )
+                if key_filled in self._template_keys:
                     new_dict[key_filled] = val
                     continue
+                new_path = f"{current_path}.'{key_filled}'"
                 new_dict[key_filled] = self._recursive_subst(
-                    val, f"{current_path}.'{key_filled}'", always_list=always_list
+                    templ=val, current_path=new_path, always_list=always_list, relative_path_anchor=get_relative_path(new_path),
                 )
             return new_dict
         return templ
@@ -264,3 +321,17 @@ class TemplateFiller:
             num_periods = 0
             rest_of_string = s
         return rest_of_string, num_periods
+
+    @staticmethod
+    def _extract_fields(jsonpath):
+        def _recursive_extract(expr):
+            if hasattr(expr, "fields"):
+                fields.extend(expr.fields)
+            if hasattr(expr, "right"):
+                _recursive_extract(expr.right)
+            if hasattr(expr, "left"):
+                _recursive_extract(expr.left)
+            return
+        fields = []
+        _recursive_extract(jsonpath)
+        return fields

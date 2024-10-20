@@ -19,7 +19,7 @@ class NestedDict:
         template_marker_unpack_end: str = "}}",
         template_implicit_root: bool = True,
         template_stringer: Callable[[str], str] = str,
-        template_ignore_key_regex: str | None = None,
+        relative_template_keys: list[str] | None = None,
     ):
         self._data = data or {}
         self._templater = _ps.update.TemplateFiller(
@@ -30,7 +30,7 @@ class NestedDict:
             implicit_root=template_implicit_root,
             stringer=template_stringer,
         )
-        self._ignore_key_regex = template_ignore_key_regex
+        self._relative_template_keys = relative_template_keys
         return
 
     def fill(
@@ -67,7 +67,7 @@ class NestedDict:
             current_path=current_path,
             always_list=always_list,
             recursive=recursive,
-            ignore_key_regex=self._ignore_key_regex,
+            relative_template_keys=self._relative_template_keys,
         )
 
     def __call__(self):
