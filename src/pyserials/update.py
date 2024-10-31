@@ -137,8 +137,10 @@ class TemplateFiller:
         self._ignore_templates = True
         self._leave_no_match = False
         self._no_match_value = None
+        self._code_context = {}
         self._stringer = str
         self._unpack_string_joiner = ", "
+        self._path_history = []
         return
 
     def _get_value_regex_pattern(self, level: int = 0) -> _RegexPattern:
@@ -162,6 +164,7 @@ class TemplateFiller:
         raise_no_match: bool = True,
         leave_no_match: bool = False,
         no_match_value: Any = None,
+        code_context: dict[str, Any] | None = None,
         stringer: Callable[[str], str] = str,
         unpack_string_joiner: str = ", ",
         relative_template_keys: list[str] | None = None,
@@ -174,10 +177,12 @@ class TemplateFiller:
         self._raise_no_match = raise_no_match
         self._leave_no_match = leave_no_match
         self._no_match_value = no_match_value
+        self._code_context = code_context or {}
         self._stringer = stringer
         self._unpack_string_joiner = unpack_string_joiner
         self._add_prefix = implicit_root
         self._template_keys = relative_template_keys or []
+        self._path_history = []
         path = (f"$.{current_path}" if self._add_prefix else current_path) if current_path else "$"
         if not relative_template_keys:
             self._ignore_templates = False
@@ -198,6 +203,7 @@ class TemplateFiller:
             self._source = first_pass
         self._data = first_pass
         self._ignore_templates = False
+        self._path_history = []
         return self._recursive_subst(
             templ=self._data,
             current_path=path,
@@ -205,13 +211,13 @@ class TemplateFiller:
             level=level,
         )
 
-    def _recursive_subst(self, templ, current_path: str, relative_path_anchor: str, level: int):
+    def _recursive_subst(self, templ, current_path: str, relative_path_anchor: str, level: int, internal=False):
 
         def get_code_value(code_str: str):
             code_lines = ["def __inline_code__():"]
             code_lines.extend([f"    {line}" for line in code_str.strip("\n").splitlines()])
             code_str_full = "\n".join(code_lines)
-            global_context = {}
+            global_context = self._code_context.copy()
             local_context = {}
             try:
                 exec(code_str_full, global_context, local_context)
@@ -250,7 +256,7 @@ class TemplateFiller:
                             ),
                         )
                     root_path_expr = root_path_expr.left
-                path_expr = root_path_expr.child(path_expr)
+                path_expr = _jsonpath.Child(root_path_expr, path_expr)
             value, matched = get_value(path_expr, return_all_matches)
             if matched:
                 return value
@@ -261,7 +267,9 @@ class TemplateFiller:
         def get_value(jsonpath, return_all_matches: bool) -> tuple[Any, bool]:
             matches = _rec_match(jsonpath)
             if not matches:
-                if not return_all_matches and self._raise_no_match:
+                if return_all_matches:
+                    return [], True
+                if self._raise_no_match:
                     raise_error(
                         path_invalid=str(jsonpath),
                         description_template="JSONPath expression {path_invalid} did not match any data.",
@@ -333,6 +341,22 @@ class TemplateFiller:
                     values = get_address_value(match)
             return self._unpack_string_joiner.join([self._stringer(val) for val in values])
 
+        # if not internal:
+        #     self._path_history.append(current_path)
+        # loop = self._find_loop()
+        # if loop:
+        #     loop_str = "\n".join([f"- {path.replace("'", "")}" for path in loop])
+        #     raise _exception.update.PySerialsUpdateTemplatedDataError(
+        #         description_template=f"Path {{path_invalid}} starts a loop: {loop_str}",
+        #         path_invalid=loop[0],
+        #         path=current_path,
+        #         data=templ,
+        #         data_full=self._data,
+        #         data_source=self._source,
+        #         template_start=self._marker_start_value,
+        #         template_end=self._marker_end_value,
+        #     )
+
         if isinstance(templ, str):
             pattern_nested = self._get_value_regex_pattern(level=level + 1)
             templ_nested_filled = pattern_nested.sub(
@@ -341,6 +365,7 @@ class TemplateFiller:
                     current_path=current_path,
                     relative_path_anchor=get_relative_path(current_path),
                     level=level+1,
+                    internal=True,
                 ),
                 templ
             )
@@ -401,6 +426,7 @@ class TemplateFiller:
                     current_path=current_path,
                     relative_path_anchor=relative_path_anchor,
                     level=0,
+                    internal=True,
                 )
                 if isinstance(key, str) and self._pattern_unpack.fullmatch(key.strip()):
                     new_dict.update(key_filled)
@@ -417,6 +443,17 @@ class TemplateFiller:
                 )
             return new_dict
         return templ
+
+    def _find_loop(self):
+        for pattern_length in range(1, len(self._path_history) // 2 + 1):
+            # Slice the end of the list into two consecutive patterns
+            pattern = self._path_history[-pattern_length:]
+            previous_pattern = self._path_history[-2 * pattern_length:-pattern_length]
+            # Check if the two patterns are the same
+            if pattern == previous_pattern:
+                pattern.insert(0, pattern[-1])
+                return pattern
+        return
 
     @staticmethod
     def _remove_leading_periods(s: str) -> (str, int):

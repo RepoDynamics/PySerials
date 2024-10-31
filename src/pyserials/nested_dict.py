@@ -28,6 +28,7 @@ class NestedDict:
         raise_no_match: bool = True,
         leave_no_match: bool = False,
         no_match_value: Any = None,
+        code_context: dict[str, Any] | None = None,
         stringer: Callable[[str], str] = str,
         unpack_string_joiner: str = ", ",
         relative_template_keys: list[str] | None = None,
@@ -51,6 +52,7 @@ class NestedDict:
         self._raise_no_match = raise_no_match
         self._leave_no_match = leave_no_match
         self._no_match_value = no_match_value
+        self._code_context = code_context or {}
         self._stringer = stringer
         self._unpack_string_joiner = unpack_string_joiner
         self._relative_template_keys = relative_template_keys or []
@@ -63,6 +65,7 @@ class NestedDict:
         recursive: bool | None = None,
         raise_no_match: bool | None = None,
         leave_no_match: bool | None = None,
+        code_context: dict[str, Any] | None = None,
         stringer: Callable[[str], str] | None = None,
         unpack_string_joiner: str | None = None,
         level: int = 0,
@@ -79,6 +82,7 @@ class NestedDict:
             recursive=recursive,
             raise_no_match=raise_no_match,
             leave_no_match=leave_no_match,
+            code_context=code_context,
             stringer=stringer,
             unpack_string_joiner=unpack_string_joiner,
             level=level,
@@ -97,6 +101,7 @@ class NestedDict:
         raise_no_match: bool | None = None,
         leave_no_match: bool | None = None,
         stringer: Callable[[str], str] | None = None,
+        code_context: dict[str, Any] | None = None,
         unpack_string_joiner: str | None = None,
         level: int = 0,
     ):
@@ -108,6 +113,7 @@ class NestedDict:
             raise_no_match=raise_no_match if raise_no_match is not None else self._raise_no_match,
             leave_no_match=leave_no_match if leave_no_match is not None else self._leave_no_match,
             no_match_value=self._no_match_value,
+            code_context=code_context if code_context is not None else self._code_context,
             stringer=stringer if stringer is not None else self._stringer,
             unpack_string_joiner=unpack_string_joiner if unpack_string_joiner is not None else self._unpack_string_joiner,
             relative_template_keys=self._relative_template_keys,
