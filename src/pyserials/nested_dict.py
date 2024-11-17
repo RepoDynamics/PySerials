@@ -157,3 +157,14 @@ class NestedDict:
     def update(self, data: dict):
         self._data.update(data)
         return
+
+    def pop(self, key: str, default=None):
+        keys = key.split(".")
+        data = self._data
+        for key in keys[:-1]:
+            if not isinstance(data, dict) or key not in data:
+                return default
+            data = data[key]
+        if not isinstance(data, dict) or key not in data:
+            return default
+        return data.pop(key)

@@ -9,11 +9,14 @@ class PropertyDict:
         """The data as a dictionary."""
         return self._data
 
-    def get(self, name: str, default=None):
-        return self._data.get(name, default)
+    def get(self, key, default=None):
+        return self._data.get(key, default)
 
-    def pop(self, name: str, default=None):
-        return self._data.pop(name, default)
+    def pop(self, key, default=None):
+        return self._data.pop(key, default)
+
+    def setdefault(self, key, default):
+        return self._data.setdefault(key, default)
 
     def __getattr__(self, name: str):
         return self._data[name]
