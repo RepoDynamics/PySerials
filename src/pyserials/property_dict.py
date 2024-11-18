@@ -1,3 +1,6 @@
+import copy as _copy
+
+
 class PropertyDict:
 
     def __init__(self, data: dict | None):
@@ -50,3 +53,8 @@ class PropertyDict:
 
     def __ne__(self, other):
         return self._data != other._data
+
+    def __deepcopy__(self, memo):
+        # Use `deepcopy` on the internal dictionary to copy its contents
+        copied_data = _copy.deepcopy(self._data, memo)
+        return PropertyDict(copied_data)
