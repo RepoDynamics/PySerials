@@ -19,7 +19,10 @@ class PropertyDict:
         return self._data.setdefault(key, default)
 
     def __getattr__(self, name: str):
-        return self._data[name]
+        try:
+            return self._data[name]
+        except KeyError:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def __getitem__(self, name: str):
         return self._data[name]
