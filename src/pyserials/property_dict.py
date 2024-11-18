@@ -55,6 +55,19 @@ class PropertyDict:
         return self._data != other._data
 
     def __deepcopy__(self, memo):
-        # Use `deepcopy` on the internal dictionary to copy its contents
+        # Dynamically handle subclass instantiation with additional arguments
+        cls = type(self)
+        # Deepcopy the data dictionary
         copied_data = _copy.deepcopy(self._data, memo)
-        return PropertyDict(copied_data)
+        # Capture extra attributes (everything except `_data`)
+        extra_attrs = {
+            key: _copy.deepcopy(value, memo)
+            for key, value in self.__dict__.items()
+            if key != "_data"
+        }
+        # Create a new instance
+        obj = cls.__new__(cls)  # Avoid calling __init__ directly
+        obj._data = copied_data  # Set _data directly
+        # Restore extra attributes
+        obj.__dict__.update(extra_attrs)
+        return obj
