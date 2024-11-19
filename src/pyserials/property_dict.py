@@ -12,29 +12,41 @@ class PropertyDict:
         """The data as a dictionary."""
         return self._data
 
+    def items(self):
+        return self._data.items()
+
+    def keys(self):
+        return self._data.keys()
+
+    def values(self):
+        return self._data.values()
+    
     def get(self, key, default=None):
         return self._data.get(key, default)
 
     def pop(self, key, default=None):
         return self._data.pop(key, default)
+    
+    def update(self, *args, **kwargs):
+        return self._data.update(*args, **kwargs)
 
     def setdefault(self, key, default):
         return self._data.setdefault(key, default)
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name):
         try:
             return self._data[name]
         except KeyError:
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
-    def __getitem__(self, name: str):
-        return self._data[name]
+    def __getitem__(self, key):
+        return self._data[key]
 
     def __setitem__(self, key, value):
         self._data[key] = value
 
-    def __contains__(self, name: str):
-        return name in self._data
+    def __contains__(self, key):
+        return key in self._data
 
     def __iter__(self):
         return iter(self._data)
