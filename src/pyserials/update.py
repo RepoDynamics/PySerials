@@ -335,21 +335,7 @@ class TemplateFiller:
                 template_end=self._marker_end_value,
             )
 
-        # if not internal:
-        #     self._path_history.append(current_path)
-        # loop = self._find_loop()
-        # if loop:
-        #     loop_str = "\n".join([f"- {path.replace("'", "")}" for path in loop])
-        #     raise _exception.update.PySerialsUpdateTemplatedDataError(
-        #         description_template=f"Path {{path_invalid}} starts a loop: {loop_str}",
-        #         path_invalid=loop[0],
-        #         path=current_path,
-        #         data=templ,
-        #         data_full=self._data,
-        #         data_source=self._source,
-        #         template_start=self._marker_start_value,
-        #         template_end=self._marker_end_value,
-        #     )
+        self._check_endless_loop(templ, current_chain)
 
         if isinstance(templ, str):
             # Handle value blocks
@@ -438,16 +424,23 @@ class TemplateFiller:
             return new_dict
         return templ
 
-    # def _find_loop(self):
-    #     for pattern_length in range(1, len(self._path_history) // 2 + 1):
-    #         # Slice the end of the list into two consecutive patterns
-    #         pattern = self._path_history[-pattern_length:]
-    #         previous_pattern = self._path_history[-2 * pattern_length:-pattern_length]
-    #         # Check if the two patterns are the same
-    #         if pattern == previous_pattern:
-    #             pattern.insert(0, pattern[-1])
-    #             return pattern
-    #     return
+    def _check_endless_loop(self,templ, chain: list[str]):
+        last_idx = len(chain) -1
+        first_idx = chain.index(chain[-1])
+        if first_idx == last_idx:
+            return
+        loop = chain[first_idx - 1: -1]
+        loop_str = "\n".join([f"- {path.replace("'", "")}" for path in loop])
+        raise _exception.update.PySerialsUpdateTemplatedDataError(
+            description_template=f"Path {{path_invalid}} starts a loop:\n{loop_str}",
+            path_invalid=loop[0],
+            path=chain[-1],
+            data=templ,
+            data_full=self._data,
+            data_source=self._data,
+            template_start=self._marker_start_value,
+            template_end=self._marker_end_value,
+        )
 
     def _get_value_regex_pattern(self, level: int = 0) -> _RegexPattern:
         if level in self._pattern_value:
