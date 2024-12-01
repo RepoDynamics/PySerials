@@ -142,9 +142,10 @@ class PySerialsInvalidDataError(PySerialsReadException):
             self.problem = cause.problem.strip()
             if cause.context:
                 self.context = cause.context.strip()
-                self.context_line = cause.context_mark.line + 1
-                self.context_column = cause.context_mark.column + 1
-                self.context_data_type = cause.context_mark.name.removeprefix("<").removesuffix(">")
+                if cause.context_mark:
+                    self.context_line = cause.context_mark.line + 1
+                    self.context_column = cause.context_mark.column + 1
+                    self.context_data_type = cause.context_mark.name.removeprefix("<").removesuffix(">")
         elif isinstance(cause, _json.JSONDecodeError):
             self.problem = cause.msg
             self.problem_line = cause.lineno

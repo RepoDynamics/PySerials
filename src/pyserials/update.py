@@ -203,6 +203,7 @@ class TemplateFiller:
                 raise_error(
                     description_template=f"Code at {{path_invalid}} raised an exception: {e}\n{code_str_full}",
                     path_invalid=current_path,
+                    exception=e,
                 )
 
         def get_address_value(match: _re.Match | str, return_all_matches: bool = False, from_code: bool = False):
@@ -323,7 +324,7 @@ class TemplateFiller:
                     values = get_address_value(path)
             return self._unpack_string_joiner.join([self._stringer(val) for val in values])
 
-        def raise_error(path_invalid: str, description_template: str):
+        def raise_error(path_invalid: str, description_template: str, exception: Exception | None = None):
             raise _exception.update.PySerialsUpdateTemplatedDataError(
                 description_template=description_template,
                 path_invalid=path_invalid,
@@ -333,7 +334,7 @@ class TemplateFiller:
                 data_source=self._data,
                 template_start=self._marker_start_value,
                 template_end=self._marker_end_value,
-            )
+            ) from exception
 
         self._check_endless_loop(templ, current_chain)
 
@@ -361,7 +362,7 @@ class TemplateFiller:
                 unpack_value = fill_nested_values(unpack_value)
                 submatch_list = self._pattern_list.fullmatch(unpack_value)
                 if submatch_list:
-                    return get_address_value(unpack_value, return_all_matches=True)
+                    return get_address_value(submatch_list, return_all_matches=True)
                 return get_address_value(unpack_value)
             # Handle strings
             code_blocks_filled = self._pattern_code.sub(
