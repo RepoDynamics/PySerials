@@ -152,6 +152,7 @@ class TemplateFiller:
 
         self._pattern_value: dict[int, _RegexPattern] = {}
         self._data = None
+        self._visited_paths = set()
         return
 
     def fill(
@@ -161,6 +162,7 @@ class TemplateFiller:
         current_path: str = "",
     ):
         self._data = data
+        self._visited_paths = set()
         path = (f"$.{current_path}" if self._add_prefix else current_path) if current_path else "$"
         return self._recursive_subst(
             templ=template or data,
@@ -198,13 +200,15 @@ class TemplateFiller:
             local_context = {}
             try:
                 exec(code_str_full, global_context, local_context)
-                return local_context["__inline_code__"]()
+                output = local_context["__inline_code__"]()
             except Exception as e:
                 raise_error(
                     description_template=f"Code at {{path_invalid}} raised an exception: {e}\n{code_str_full}",
                     path_invalid=current_path,
                     exception=e,
                 )
+            self._visited_paths.add(self._normalize_path(current_path))
+            return output
 
         def get_address_value(match: _re.Match | str, return_all_matches: bool = False, from_code: bool = False):
             raw_path = match if isinstance(match, str) else str(match.group(1))
@@ -238,6 +242,7 @@ class TemplateFiller:
                     root_path_expr = root_path_expr.left
                 path_expr = self._concat_json_paths(root_path_expr, path_expr)
             value, matched = get_value(path_expr, return_all_matches, from_code)
+            self._visited_paths.add(self._normalize_path(current_path))
             if from_code:
                 return value, matched
             if matched:
@@ -337,6 +342,8 @@ class TemplateFiller:
             ) from exception
 
         self._check_endless_loop(templ, current_chain)
+        # if self._normalize_path(current_path) in self._visited_paths:
+        #     return templ
 
         if isinstance(templ, str):
             # Handle value blocks
@@ -393,9 +400,16 @@ class TemplateFiller:
                     current_chain=current_chain + [new_path],
                 )
                 if isinstance(elem, str) and self._pattern_unpack.fullmatch(elem):
-                    out.extend(elem_filled)
+                    try:
+                        out.extend(elem_filled)
+                    except TypeError as e:
+                        raise_error(
+                            path_invalid=current_path,
+                            description_template=str(e)
+                        )
                 else:
                     out.append(elem_filled)
+            self._visited_paths.add(self._normalize_path(current_path))
             return out
 
         if isinstance(templ, dict):
@@ -422,6 +436,7 @@ class TemplateFiller:
                     level=0,
                     current_chain=current_chain + [new_path],
                 )
+            self._visited_paths.add(self._normalize_path(current_path))
             return new_dict
         return templ
 
@@ -479,6 +494,10 @@ class TemplateFiller:
         fields = []
         _recursive_extract(jsonpath)
         return fields
+
+    @staticmethod
+    def _normalize_path(path: str) -> str:
+        return path.replace("'", "")
 
     def _concat_json_paths(self, path1, path2):
         if not isinstance(path2, _jsonpath.Child):

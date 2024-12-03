@@ -128,7 +128,8 @@ class PySerialsUpdateTemplatedDataError(PySerialsUpdateException):
         self.template_start = template_start
         self.template_end = template_end
         parts = description_template.split("{path_invalid}")
-        parts.insert(1, _mdit.element.code_span(self.path_invalid))
+        if len(parts) > 1:
+            parts.insert(1, _mdit.element.code_span(self.path_invalid))
         super().__init__(
             path=path.replace("'", ""),
             data=data,
