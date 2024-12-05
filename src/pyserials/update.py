@@ -152,7 +152,7 @@ class TemplateFiller:
 
         self._pattern_value: dict[int, _RegexPattern] = {}
         self._data = None
-        self._visited_paths = set()
+        self._visited_paths = {}
         return
 
     def fill(
@@ -162,17 +162,17 @@ class TemplateFiller:
         current_path: str = "",
     ):
         self._data = data
-        self._visited_paths = set()
-        path = (f"$.{current_path}" if self._add_prefix else current_path) if current_path else "$"
+        self._visited_paths = {}
+        path = _jsonpath.parse((f"$.{current_path}" if self._add_prefix else current_path) if current_path else "$")
         return self._recursive_subst(
             templ=template or data,
             current_path=path,
             relative_path_anchor=path,
             level=0,
-            current_chain=[path],
+            current_chain=(path,),
         )
 
-    def _recursive_subst(self, templ, current_path: str, relative_path_anchor: str, level: int, current_chain: list[str]):
+    def _recursive_subst(self, templ, current_path: str, relative_path_anchor: str, level: int, current_chain: tuple[str, ...]):
 
         def get_code_value(match: _re.Match | str):
 
@@ -207,7 +207,7 @@ class TemplateFiller:
                     path_invalid=current_path,
                     exception=e,
                 )
-            self._visited_paths.add(self._normalize_path(current_path))
+            self._visited_paths[current_path] = (output, True)
             return output
 
         def get_address_value(match: _re.Match | str, return_all_matches: bool = False, from_code: bool = False):
@@ -219,21 +219,21 @@ class TemplateFiller:
                 path_expr = _jsonpath.parse(path)
             except _jsonpath_exceptions.JSONPathError:
                 raise_error(
-                    path_invalid=path,
+                    path_invalid=path_expr,
                     description_template="JSONPath expression {path_invalid} is invalid.",
                 )
             if num_periods:
                 if relative_path_anchor != current_path:
-                    path_fields = self._extract_fields(_jsonpath.parse(current_path))
+                    path_fields = self._extract_fields(current_path)
                     has_template_key = any(field in self._template_keys for field in path_fields)
                     anchor_path = relative_path_anchor if has_template_key else current_path
                 else:
                     anchor_path = current_path
-                root_path_expr = _jsonpath.parse(anchor_path)
+                root_path_expr = anchor_path
                 for period in range(num_periods):
                     if isinstance(root_path_expr, _jsonpath.Root):
                         raise_error(
-                            path_invalid=path,
+                            path_invalid=path_expr,
                             description_template=(
                                 "Relative path {path_invalid} is invalid; "
                                 f"reached root but still {num_periods - period} levels remaining."
@@ -241,8 +241,8 @@ class TemplateFiller:
                         )
                     root_path_expr = root_path_expr.left
                 path_expr = self._concat_json_paths(root_path_expr, path_expr)
-            value, matched = get_value(path_expr, return_all_matches, from_code)
-            self._visited_paths.add(self._normalize_path(current_path))
+            value, matched = self._visited_paths.get(path_expr) or get_value(path_expr, return_all_matches, from_code)
+            self._visited_paths[path_expr] = (value, matched)
             if from_code:
                 return value, matched
             if matched:
@@ -260,7 +260,7 @@ class TemplateFiller:
                     return [], True
                 if self._raise_no_match:
                     raise_error(
-                        path_invalid=str(jsonpath),
+                        path_invalid=jsonpath,
                         description_template="JSONPath expression {path_invalid} did not match any data.",
                     )
                 return None, False
@@ -274,10 +274,10 @@ class TemplateFiller:
                 _rel_path_anchor = relative_path_anchor
             return self._recursive_subst(
                 output,
-                current_path=str(jsonpath),
+                current_path=jsonpath,
                 relative_path_anchor=_rel_path_anchor,
                 level=0,
-                current_chain=current_chain + [str(jsonpath)],
+                current_chain=current_chain + (jsonpath,),
             ), True
 
         def _rec_match(expr) -> list:
@@ -291,10 +291,10 @@ class TemplateFiller:
             for left_match in left_matches:
                 left_match_filled = self._recursive_subst(
                     templ=left_match.value,
-                    current_path=str(expr.left),
-                    relative_path_anchor=str(expr.left),
+                    current_path=expr.left,
+                    relative_path_anchor=expr.left,
                     level=0,
-                    current_chain=current_chain + [str(expr.left)],
+                    current_chain=current_chain + (expr.left,),
                 ) if isinstance(left_match.value, str) else left_match.value
                 right_matches = expr.right.find(left_match_filled)
                 whole_matches.extend(right_matches)
@@ -341,9 +341,10 @@ class TemplateFiller:
                 template_end=self._marker_end_value,
             ) from exception
 
+        if current_path in self._visited_paths:
+            return self._visited_paths[current_path][0]
+
         self._check_endless_loop(templ, current_chain)
-        # if self._normalize_path(current_path) in self._visited_paths:
-        #     return templ
 
         if isinstance(templ, str):
             # Handle value blocks
@@ -391,13 +392,13 @@ class TemplateFiller:
         if isinstance(templ, list):
             out = []
             for idx, elem in enumerate(templ):
-                new_path = f"{current_path}[{idx}]"
+                new_path = _jsonpath.Child(current_path, _jsonpath.Index(idx))
                 elem_filled = self._recursive_subst(
                     templ=elem,
                     current_path=new_path,
                     relative_path_anchor=get_relative_path(new_path),
                     level=0,
-                    current_chain=current_chain + [new_path],
+                    current_chain=current_chain + (new_path,),
                 )
                 if isinstance(elem, str) and self._pattern_unpack.fullmatch(elem):
                     try:
@@ -409,7 +410,7 @@ class TemplateFiller:
                         )
                 else:
                     out.append(elem_filled)
-            self._visited_paths.add(self._normalize_path(current_path))
+            self._visited_paths[current_path] = (out, True)
             return out
 
         if isinstance(templ, dict):
@@ -428,29 +429,30 @@ class TemplateFiller:
                 if key_filled in self._template_keys:
                     new_dict[key_filled] = val
                     continue
-                new_path = f"{current_path}.'{key_filled}'"
+                new_path = _jsonpath.Child(current_path, _jsonpath.Fields(key_filled))
                 new_dict[key_filled] = self._recursive_subst(
                     templ=val,
                     current_path=new_path,
                     relative_path_anchor=get_relative_path(new_path),
                     level=0,
-                    current_chain=current_chain + [new_path],
+                    current_chain=current_chain + (new_path,),
                 )
-            self._visited_paths.add(self._normalize_path(current_path))
+            self._visited_paths[current_path] = (new_dict, True)
             return new_dict
         return templ
 
-    def _check_endless_loop(self,templ, chain: list[str]):
-        last_idx = len(chain) -1
+    def _check_endless_loop(self,templ, chain: tuple[str, ...]):
+        last_idx = len(chain) - 1
         first_idx = chain.index(chain[-1])
         if first_idx == last_idx:
             return
-        loop = chain[first_idx - 1: -1]
-        loop_str = "\n".join([f"- {path.replace("'", "")}" for path in loop])
+        loop = [chain[-2], *chain[first_idx: -2]]
+        loop_str = "\n".join([f"- {path}" for path in loop])
+        history_str = "\n".join([f"- {path}" for path in chain])
         raise _exception.update.PySerialsUpdateTemplatedDataError(
-            description_template=f"Path {{path_invalid}} starts a loop:\n{loop_str}",
-            path_invalid=loop[0],
-            path=chain[-1],
+            description_template=f"Path {{path_invalid}} starts a loop:\n{loop_str}\nHistory:\n{history_str}",
+            path_invalid=chain[-2],
+            path=chain[0],
             data=templ,
             data_full=self._data,
             data_source=self._data,
