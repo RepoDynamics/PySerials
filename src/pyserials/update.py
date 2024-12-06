@@ -172,7 +172,7 @@ class TemplateFiller:
             current_chain=(path,),
         )
 
-    def _recursive_subst(self, templ, current_path: str, relative_path_anchor: str, level: int, current_chain: tuple[str, ...]):
+    def _recursive_subst(self, templ, current_path: str, relative_path_anchor: str, level: int, current_chain: tuple[str, ...], is_key: bool = False):
 
         def get_code_value(match: _re.Match | str):
 
@@ -207,7 +207,6 @@ class TemplateFiller:
                     path_invalid=current_path,
                     exception=e,
                 )
-            self._visited_paths[current_path] = (output, True)
             return output
 
         def get_address_value(match: _re.Match | str, return_all_matches: bool = False, from_code: bool = False):
@@ -224,9 +223,7 @@ class TemplateFiller:
                 )
             if num_periods:
                 if relative_path_anchor != current_path:
-                    path_fields = self._extract_fields(current_path)
-                    has_template_key = any(field in self._template_keys for field in path_fields)
-                    anchor_path = relative_path_anchor if has_template_key else current_path
+                    anchor_path = relative_path_anchor if is_relative_template else current_path
                 else:
                     anchor_path = current_path
                 root_path_expr = anchor_path
@@ -241,8 +238,13 @@ class TemplateFiller:
                         )
                     root_path_expr = root_path_expr.left
                 path_expr = self._concat_json_paths(root_path_expr, path_expr)
-            value, matched = self._visited_paths.get(path_expr) or get_value(path_expr, return_all_matches, from_code)
-            self._visited_paths[path_expr] = (value, matched)
+            cached_result = self._visited_paths.get(path_expr)
+            if cached_result:
+                value, matched = cached_result
+            else:
+                value, matched = get_value(path_expr, return_all_matches, from_code)
+            if not self._is_relative_template(path_expr):
+                self._visited_paths[path_expr] = (value, matched)
             if from_code:
                 return value, matched
             if matched:
@@ -345,49 +347,49 @@ class TemplateFiller:
             return self._visited_paths[current_path][0]
 
         self._check_endless_loop(templ, current_chain)
+        is_relative_template = self._is_relative_template(current_path)
 
         if isinstance(templ, str):
             # Handle value blocks
             pattern_value = self._get_value_regex_pattern(level=level)
-            match_value = pattern_value.fullmatch(templ)
-            if match_value:
-                return get_address_value(fill_nested_values(match_value))
+            if match_value := pattern_value.fullmatch(templ):
+                out = get_address_value(fill_nested_values(match_value))
             # Handle list blocks
-            match_list = self._pattern_list.fullmatch(templ)
-            if match_list:
-                return get_address_value(fill_nested_values(match_list), return_all_matches=True)
+            elif match_list := self._pattern_list.fullmatch(templ):
+                out = get_address_value(fill_nested_values(match_list), return_all_matches=True)
             # Handle code blocks
-            match_code = self._pattern_code.fullmatch(templ)
-            if match_code:
-                return get_code_value(match_code)
+            elif match_code := self._pattern_code.fullmatch(templ):
+                out = get_code_value(match_code)
             # Handle unpack blocks
-            match_unpack = self._pattern_unpack.fullmatch(templ)
-            if match_unpack:
+            elif match_unpack := self._pattern_unpack.fullmatch(templ):
                 unpack_value = match_unpack.group(1)
-                submatch_code = self._pattern_code.fullmatch(unpack_value)
-                if submatch_code:
-                    return get_code_value(submatch_code)
-                unpack_value = fill_nested_values(unpack_value)
-                submatch_list = self._pattern_list.fullmatch(unpack_value)
-                if submatch_list:
-                    return get_address_value(submatch_list, return_all_matches=True)
-                return get_address_value(unpack_value)
+                if submatch_code := self._pattern_code.fullmatch(unpack_value):
+                    out = get_code_value(submatch_code)
+                else:
+                    unpack_value = fill_nested_values(unpack_value)
+                    if submatch_list := self._pattern_list.fullmatch(unpack_value):
+                        out = get_address_value(submatch_list, return_all_matches=True)
+                    else:
+                        out = get_address_value(unpack_value)
             # Handle strings
-            code_blocks_filled = self._pattern_code.sub(
-                lambda x: self._stringer(get_code_value(x)),
-                templ
-            )
-            nested_values_filled = fill_nested_values(code_blocks_filled)
-            unpacked_filled = self._pattern_unpack.sub(string_filler_unpack, nested_values_filled)
-            lists_filled = self._pattern_list.sub(
-                lambda x: self._stringer(get_address_value(x)),
-                unpacked_filled
-            )
-            templ_values_filled = pattern_value.sub(
-                lambda x: self._stringer(get_address_value(x)),
-                lists_filled
-            )
-            return templ_values_filled
+            else:
+                code_blocks_filled = self._pattern_code.sub(
+                    lambda x: self._stringer(get_code_value(x)),
+                    templ
+                )
+                nested_values_filled = fill_nested_values(code_blocks_filled)
+                unpacked_filled = self._pattern_unpack.sub(string_filler_unpack, nested_values_filled)
+                lists_filled = self._pattern_list.sub(
+                    lambda x: self._stringer(get_address_value(x)),
+                    unpacked_filled
+                )
+                out = pattern_value.sub(
+                    lambda x: self._stringer(get_address_value(x)),
+                    lists_filled
+                )
+            if not is_relative_template and not is_key:
+                self._visited_paths[current_path] = (out, True)
+            return out
 
         if isinstance(templ, list):
             out = []
@@ -410,7 +412,8 @@ class TemplateFiller:
                         )
                 else:
                     out.append(elem_filled)
-            self._visited_paths[current_path] = (out, True)
+            if not is_relative_template:
+                self._visited_paths[current_path] = (out, True)
             return out
 
         if isinstance(templ, dict):
@@ -422,6 +425,7 @@ class TemplateFiller:
                     relative_path_anchor=relative_path_anchor,
                     level=0,
                     current_chain=current_chain,
+                    is_key=True,
                 )
                 if isinstance(key, str) and self._pattern_unpack.fullmatch(key):
                     new_dict.update(key_filled)
@@ -437,7 +441,8 @@ class TemplateFiller:
                     level=0,
                     current_chain=current_chain + (new_path,),
                 )
-            self._visited_paths[current_path] = (new_dict, True)
+            if not is_relative_template:
+                self._visited_paths[current_path] = (new_dict, True)
             return new_dict
         return templ
 
@@ -470,6 +475,10 @@ class TemplateFiller:
         )
         self._pattern_value[level] = pattern
         return pattern
+
+    def _is_relative_template(self, jsonpath):
+        path_fields = self._extract_fields(jsonpath)
+        return any(field in self._template_keys for field in path_fields)
 
     @staticmethod
     def _remove_leading_periods(s: str) -> (str, int):
