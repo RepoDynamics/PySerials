@@ -17,7 +17,7 @@ namespaces = true
 # ----------------------------------------- Project Metadata -------------------------------------
 #
 [project]
-version = "0.0.0.dev53"
+version = "0.0.0.dev54"
 name = "PySerials"
 dependencies = [
     "jsonschema >= 4.21.0, < 5",
@@ -26,8 +26,8 @@ dependencies = [
     "ruamel.yaml >= 0.17.32, < 0.18", # https://yaml.readthedocs.io/en/stable/
     "ruamel.yaml.string >= 0.1.1, < 1",
     "tomlkit >= 0.11.8, < 0.12", # https://tomlkit.readthedocs.io/en/stable/,
-    "MDit == 0.0.0.dev50",
-    "ExceptionMan == 0.0.0.dev50",
+    "MDit == 0.0.0.dev51",
+    "ExceptionMan == 0.0.0.dev51",
     "ProtocolMan == 0.0.0.dev2",
 ]
 requires-python = ">=3.10"

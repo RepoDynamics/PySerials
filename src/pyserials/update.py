@@ -126,6 +126,7 @@ class TemplateFiller:
         stringer: Callable[[str], str] = str,
         unpack_string_joiner: str = ", ",
         relative_template_keys: list[str] | None = None,
+        relative_key_key: str | None = None,
         implicit_root: bool = True,
         getter_function_name: str = "get",
     ):
@@ -148,6 +149,7 @@ class TemplateFiller:
         self._unpack_string_joiner = unpack_string_joiner
         self._add_prefix = implicit_root
         self._template_keys = relative_template_keys or []
+        self._relative_key_key = relative_key_key
         self._getter_function_name = getter_function_name
 
         self._pattern_value: dict[int, _RegexPattern] = {}
@@ -237,6 +239,12 @@ class TemplateFiller:
                             ),
                         )
                     root_path_expr = root_path_expr.left
+                # Handle relative-key key
+                if self._relative_key_key and path == self._relative_key_key:
+                    output = root_path_expr.right
+                    if from_code:
+                        return output, True
+                    return output
                 path_expr = self._concat_json_paths(root_path_expr, path_expr)
             cached_result = self._visited_paths.get(path_expr)
             if cached_result:

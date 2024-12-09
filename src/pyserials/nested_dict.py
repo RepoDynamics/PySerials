@@ -33,6 +33,7 @@ class NestedDict:
         stringer: Callable[[str], str] = str,
         unpack_string_joiner: str = ", ",
         relative_template_keys: list[str] | None = None,
+        relative_key_key: str | None = None,
         implicit_root: bool = True,
         getter_function_name: str = "get",
     ):
@@ -58,6 +59,7 @@ class NestedDict:
             stringer=stringer,
             unpack_string_joiner=unpack_string_joiner,
             relative_template_keys=relative_template_keys,
+            relative_key_key=relative_key_key,
             implicit_root=implicit_root,
             getter_function_name=getter_function_name,
         )
