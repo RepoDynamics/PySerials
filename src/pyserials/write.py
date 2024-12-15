@@ -1,9 +1,13 @@
-from typing import Literal as _Literal
+from __future__ import annotations as _annotations
+from typing import Literal as _Literal, TYPE_CHECKING as _TYPE_CHECKING
 from pathlib import Path as _Path
 import json as _json
 import ruamel.yaml as _yaml
 from ruamel.yaml import scalarstring as _yaml_scalar_string
 import tomlkit as _tomlkit
+
+if _TYPE_CHECKING:
+    from typing import Callable, Any
 
 
 def to_string(
@@ -47,8 +51,9 @@ def to_json_string(
     data: dict | list | str | int | float | bool | _yaml.CommentedMap | _yaml.CommentedSeq,
     sort_keys: bool = False,
     indent: int | None = None,
+    default: Callable[[Any], Any] | None = None,
 ) -> str:
-    return _json.dumps(data, indent=indent, sort_keys=sort_keys)
+    return _json.dumps(data, indent=indent, sort_keys=sort_keys, default=default)
 
 
 def to_yaml_file(
