@@ -31,12 +31,18 @@ def to_yaml_string(
     indent_sequence: int = 4,
     indent_sequence_offset: int = 2,
     multiline_string_to_block: bool = True,
+    remove_top_level_indent: bool = True
 ) -> str:
     yaml = _yaml.YAML(typ=["rt", "string"])
     yaml.indent(mapping=indent_mapping, sequence=indent_sequence, offset=indent_sequence_offset)
     if multiline_string_to_block:
         _yaml_scalar_string.walk_tree(data)
     yaml_syntax = yaml.dumps(data, add_final_eol=False).removesuffix("\n...")
+    if remove_top_level_indent:
+        yaml_lines = yaml_syntax.splitlines()
+        count_leading_spaces = len(yaml_lines[0]) - len(yaml_lines[0].lstrip(" "))
+        if count_leading_spaces:
+            yaml_syntax = "\n".join(yaml_line.removeprefix(" " * count_leading_spaces) for yaml_line in yaml_lines)
     return f"{yaml_syntax}\n" if end_of_file_newline else yaml_syntax
 
 
