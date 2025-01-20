@@ -220,7 +220,7 @@ class TemplateFiller:
                 path_expr = _jsonpath.parse(path)
             except _jsonpath_exceptions.JSONPathError:
                 raise_error(
-                    path_invalid=path_expr,
+                    path_invalid=path,
                     description_template="JSONPath expression {path_invalid} is invalid.",
                 )
             if num_periods:
@@ -242,6 +242,10 @@ class TemplateFiller:
                 # Handle relative-key key
                 if self._relative_key_key and path == self._relative_key_key:
                     output = root_path_expr.right
+                    if isinstance(output, _jsonpath.Fields):
+                        output = output.fields[0]
+                    elif isinstance(output, _jsonpath.Index):
+                        output = output.index
                     if from_code:
                         return output, True
                     return output
@@ -316,12 +320,14 @@ class TemplateFiller:
         def fill_nested_values(match: _re.Match | str):
             pattern_nested = self._get_value_regex_pattern(level=level + 1)
             return pattern_nested.sub(
-                lambda x: self._recursive_subst(
-                    templ=x.group(),
-                    current_path=current_path,
-                    relative_path_anchor=get_relative_path(current_path),
-                    level=level + 1,
-                    current_chain=current_chain,
+                lambda x: str(
+                    self._recursive_subst(
+                        templ=x.group(),
+                        current_path=current_path,
+                        relative_path_anchor=get_relative_path(current_path),
+                        level=level + 1,
+                        current_chain=current_chain,
+                    )
                 ),
                 match if isinstance(match, str) else match.group(1),
             )
