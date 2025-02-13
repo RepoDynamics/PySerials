@@ -266,7 +266,7 @@ class TemplateFiller:
             return self._no_match_value
 
         def get_value(jsonpath, return_all_matches: bool, from_code: bool) -> tuple[Any, bool]:
-            matches = _rec_match(jsonpath)
+            matches = recursive_match(jsonpath)
             if not matches:
                 if from_code:
                     return None, False
@@ -294,14 +294,14 @@ class TemplateFiller:
                 current_chain=current_chain + (jsonpath,),
             ), True
 
-        def _rec_match(expr) -> list:
+        def recursive_match(expr) -> list:
             matches = expr.find(self._data)
             if matches:
                 return matches
             if isinstance(expr.left, _jsonpath.Root):
                 return []
             whole_matches = []
-            left_matches = _rec_match(expr.left)
+            left_matches = recursive_match(expr.left)
             for left_match in left_matches:
                 left_match_filled = self._recursive_subst(
                     templ=left_match.value,
