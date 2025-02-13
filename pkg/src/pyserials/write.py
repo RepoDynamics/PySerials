@@ -15,13 +15,27 @@ def to_string(
     data_type: _Literal["json", "yaml", "toml"],
     sort_keys: bool = False,
     indent: int | None = None,
+    default: Callable[[Any], Any] | None = None,
     end_of_file_newline: bool = True,
+    indent_mapping: int = 2,
+    indent_sequence: int = 4,
+    indent_sequence_offset: int = 2,
+    multiline_string_to_block: bool = True,
+    remove_top_level_indent: bool = True
 ):
     if data_type == "json":
-        return to_json_string(data, sort_keys=sort_keys, indent=indent)
+        return to_json_string(data, sort_keys=sort_keys, indent=indent, default=default, end_of_file_newline=end_of_file_newline)
     if data_type == "yaml":
-        return to_yaml_string(data, end_of_file_newline=end_of_file_newline)
-    return to_toml_string(data, sort_keys=sort_keys)
+        return to_yaml_string(
+            data, 
+            end_of_file_newline=end_of_file_newline,
+            indent_mapping=indent_mapping,
+            indent_sequence=indent_sequence,
+            indent_sequence_offset=indent_sequence_offset,
+            multiline_string_to_block=multiline_string_to_block,
+            remove_top_level_indent=remove_top_level_indent
+        )
+    return to_toml_string(data, sort_keys=sort_keys, end_of_file_newline=end_of_file_newline)
 
 
 def to_yaml_string(
@@ -49,8 +63,10 @@ def to_yaml_string(
 def to_toml_string(
     data: dict | list | str | int | float | bool | _yaml.CommentedMap | _yaml.CommentedSeq,
     sort_keys: bool = False,
+    end_of_file_newline: bool = True,
 ) -> str:
-    return _tomlkit.dumps(data, sort_keys=sort_keys)
+    string = _tomlkit.dumps(data, sort_keys=sort_keys)
+    return f"{string.rstrip("\n")}\n" if end_of_file_newline else string
 
 
 def to_json_string(
@@ -58,8 +74,10 @@ def to_json_string(
     sort_keys: bool = False,
     indent: int | None = None,
     default: Callable[[Any], Any] | None = None,
+    end_of_file_newline: bool = True,
 ) -> str:
-    return _json.dumps(data, indent=indent, sort_keys=sort_keys, default=default)
+    string = _json.dumps(data, indent=indent, sort_keys=sort_keys, default=default)
+    return f"{string.rstrip("\n")}\n" if end_of_file_newline else string
 
 
 def to_yaml_file(
