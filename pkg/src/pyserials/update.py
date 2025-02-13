@@ -1,6 +1,5 @@
 from __future__ import annotations as _annotations
 
-import re
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 import re as _re
 from functools import partial as _partial
@@ -11,69 +10,248 @@ from jsonpath_ng import exceptions as _jsonpath_exceptions
 import pyserials.exception as _exception
 
 if _TYPE_CHECKING:
-    from typing import Literal, Sequence, Any, Callable
+    from typing import Literal, Sequence, Any, Callable, Iterable
+    UPDATE_OPTIONS = Literal["skip", "write", "raise"] | Callable[
+        [tuple[Any] | tuple[Any, Any]], None | tuple[Any, str]
+    ]
+    FUNC_ITEMS = Callable[[Any], Iterable[tuple[Any, Any]]]
+    FUNC_CONTAINS = Callable[[Any, Any], bool]
+    FUNC_GET = Callable[[Any, Any], Any]
+    FUNC_SET = Callable[[Any, Any, Any], None]
+    FUNC_CONSTRUCT = Callable[[], Any]
+    RECURSIVE_DTYPE_FUNCS = tuple[FUNC_ITEMS, FUNC_CONTAINS, FUNC_GET, FUNC_SET, FUNC_CONSTRUCT]
 
 
-def dict_from_addon(
-    data: dict,
-    addon: dict,
-    append_list: bool = True,
-    append_dict: bool = True,
-    raise_duplicates: bool = False,
-    raise_type_mismatch: bool = True,
+def recursive_update(
+    source: Any,
+    addon: Any,
+    recursive_types: dict[type | tuple[type, ...], RECURSIVE_DTYPE_FUNCS] | None = None,
+    types: dict[type | tuple[type, ...], UPDATE_OPTIONS | tuple[UPDATE_OPTIONS, UPDATE_OPTIONS]] | None = None,
+    paths: dict[str, UPDATE_OPTIONS] | None = None,
+    constructor: Callable[[], Any] | None = None,
+    type_mismatch: UPDATE_OPTIONS = "raise",
 ) -> dict[str, list[str]]:
-    """Recursively update a dictionary from another dictionary."""
-    def recursive(source: dict, add: dict, path: str, log: dict):
+    """Recursively update a complex data structure using another data structure.
+
+    Parameters
+    ----------
+    source
+        Data structure to update in place.
+        The type of this object must be
+        defined in the `recursive_types` argument.
+    addon
+        Data structure containing additional data to update `source` with.
+    recursive_types
+        Definition of recursive data types.
+        Each key is a type (or tuple of types) used
+        to identify data types with the `isinstance` function.
+        Each value is a tuple of three functions:
+        1. Function to extract items from the data. It must accept an instance
+           of the type and return an iterable of key-value pairs.
+        2. Function to check if a key is in the data. It must accept an instance
+           of the type and a key, and return a boolean.
+        3. Function to get a value from the data. It must accept an instance
+           of the type and a key, and return the value.
+        4. Function to set a key-value pair in the data. It must accept an instance
+           of the type, a key, and a value, respectively.
+        5. Function to construct a new instance of the type. It must accept no arguments.
+
+        By default, `dict` is defined as follows:
+        ```python
+        recursive_types = {
+            dict: (
+                lambda dic: dic.items(),
+                lambda dic, key: key in dic,
+                lambda dic, key: dic[key],
+                lambda dic, key, value: dic.update({key: value}),
+                lambda: dict(),
+            )
+        }
+        ```
+        This default argument will be updated/overwritten with any custom types provided.
+        For example, to add support for a custom class `MyClass`, you can use:
+        ```python
+        recursive_types = {
+            MyClass: (
+                lambda obj: vars(object).items(),
+                lambda obj, key: hasattr(obj, key),
+                lambda obj, key: getattr(obj, key),
+                lambda obj, key, value: setattr(obj, key, value),
+                lambda: MyClass(),
+            )
+        }
+        ```
+    types
+        Update behavior for specific data types.
+        Each key is a type (or tuple of types) used
+        to identify data types with the `isinstance` function.
+        Each value is can be single update option for all cases,
+        or a tuple of two update options for when the corresponding
+        key/attribute does not exist in the source data, and when it does, respectively.
+        Each update option can be either a keyword specifying a predefined behavior,
+        or a function for custom behavior. The available keywords are:
+        - "skip": Ignore the key/attribute; do not change anything.
+        - "write": Write the key/attribute in source data with the value from the addon, overwriting if it exists.
+
+        A custom function must accept a single argument, a tuple of either one or two values.
+        If it is two values, the first value is the current value in the source data,
+        and the second value is the value from the addon.
+        If it is one value, the value is the value from the addon,
+        meaning the key/attribute does not exist in the source data.
+        The function must either return `None` (for when nothing must be changes in the source)
+        or a tuple of two values:
+        1. The new value to write in the source data.
+        2. A string specifying the change type.
+
+        By default, the following behavior is defined for basic types:
+        ```python
+        types = {list: ("write", lambda data: (data[0] + data[1], "append"))}
+        ```
+
+        The default behavior for any data type not specified in this argument is
+        `("write", "skip")`, meaning that the key/attribute will be written in the source data
+        if it does not exist, and ignored if it does.
+    paths
+        Update behavior for specific keys using JSONPath expressions.
+        This is the same as the `types` argument, but targeting specific keys
+        instead of data types.
+        Everything is the same as in the `types` argument, except that the keys
+        are JSONPath expressions as strings.
+    constructor
+        Custom constructor for creating new instances of the source data type.
+        This is used when the addon data contains a recursive key/attribute
+        that is not present in the source data. If not provided,
+        the type of the addon value will be used to create a new instance.
+    type_mismatch
+        Behavior for when a key/attribute in the source data
+        is not a recursive type, but the corresponding key/attribute
+        in the addon data is a recursive type.
+    """
+    def get_funcs(data: Any) -> RECURSIVE_DTYPE_FUNCS | None:
+        for typ, funcs in recursive_types.items():
+            if isinstance(data, typ):
+                return funcs
+        return None
+
+    def recursive(
+        src: Any,
+        add: Any,
+        src_funcs: RECURSIVE_DTYPE_FUNCS,
+        add_funcs: RECURSIVE_DTYPE_FUNCS,
+        path: str,
+    ):
+
+        def apply(behavior: UPDATE_OPTIONS | tuple[UPDATE_OPTIONS, UPDATE_OPTIONS]):
+            action = behavior[int(key_exists_in_src)] if isinstance(behavior, tuple) else behavior
+            if action == "raise":
+                raise_error(typ="duplicate")
+            elif action == "skip":
+                change_type = "skip"
+            elif action == "write":
+                change_type = "write"
+                fn_src_set(src, key, value)
+            elif not isinstance(action, str):
+                out = action((source_value, value) if key_exists_in_src else (value,))
+                if out:
+                    new_value, change_type = out
+                    fn_src_set(src, key, new_value)
+                else:
+                    change_type = "skip"
+            else:
+                raise ValueError(f"Invalid update behavior '{action}' for key '{key}' at path '{path}'.")
+            log[fullpath] = (type(source_value) if key_exists_in_src else None, type(value), change_type)
+            return
 
         def raise_error(typ: Literal["duplicate", "type_mismatch"]):
-            raise _exception.update.PySerialsUpdateDictFromAddonError(
+            raise _exception.update.PySerialsUpdateRecursiveDataError(
                 problem_type=typ,
                 path=fullpath,
-                data=source[key],
-                data_full=data,
+                data=src[key],
+                data_full=src,
                 data_addon=value,
                 data_addon_full=addon,
             )
 
-        for key, value in add.items():
+        _, fn_src_contains, fn_src_get, fn_src_set, _ = src_funcs
+        fn_add_items, _, _, _, fn_add_construct = add_funcs
+
+        for key, value in fn_add_items(add):
             fullpath = f"{path}.{key}"
-            if key not in source:
-                log["added"].append(fullpath)
-                source[key] = value
-                continue
-            if type(source[key]) is not type(value):
-                if raise_type_mismatch:
-                    raise_error(typ="type_mismatch")
-                continue
-            if not isinstance(value, (list, dict)):
-                if raise_duplicates:
-                    raise_error(typ="duplicate")
-                log["skipped"].append(fullpath)
-            elif isinstance(value, list):
-                if append_list:
-                    appended = False
-                    for elem in value:
-                        if elem not in source[key]:
-                            source[key].append(elem)
-                            appended = True
-                    if appended:
-                        log["list_appended"].append(fullpath)
-                elif raise_duplicates:
-                    raise_error(typ="duplicate")
-                else:
-                    log["skipped"].append(fullpath)
+            full_jpath = _jsonpath.parse(f"{path}.'{key}'")  # quote to avoid JSONPath syntax errors
+            key_exists_in_src = fn_src_contains(src, key)
+            source_value = fn_src_get(src, key) if key_exists_in_src else None
+            for jpath_str, matches in jsonpath_match.items():
+                if full_jpath in matches:
+                    apply(paths[jpath_str])
+                    break
             else:
-                if append_dict:
-                    recursive(source=source[key], add=value, path=f"{fullpath}.", log=log)
-                elif raise_duplicates:
-                    raise_error(typ="duplicate")
+                for typ, action in type_to_arg.items():
+                    if isinstance(value, typ):
+                        apply(action)
+                        break
                 else:
-                    log["skipped"].append(fullpath)
-        return log
-    full_log = recursive(
-        source=data, add=addon, path="$", log={"added": [], "skipped": [], "list_appended": []}
+                    funcs_value = get_funcs(value)
+                    if funcs_value:
+                        # Value is a recursive type
+                        if key_exists_in_src:
+                            funcs_src_value = get_funcs(source_value)
+                            if not funcs_src_value:
+                                # Source value is not a recursive type
+                                apply(type_mismatch)
+                            else:
+                                recursive(
+                                    src=fn_src_get(src, key),
+                                    add=value,
+                                    path=fullpath,
+                                    src_funcs=src_funcs,
+                                    add_funcs=funcs_value,
+                                )
+                        else:
+                            # Source value does not exist; create a new instance
+                            new_instance = constructor() if constructor else fn_add_construct()
+                            fn_src_set(src, key, new_instance)
+                            funcs_src_value = get_funcs(new_instance)
+                            recursive(
+                                src=new_instance,
+                                add=value,
+                                path=fullpath,
+                                src_funcs=funcs_src_value,
+                                add_funcs=funcs_value,
+                            )
+                    else:
+                        # addon value is of a non-recursive type that does not have any defined behavior;
+                        # Apply the default behavior for of ("write", "skip") for the key.
+                        apply("skip" if key_exists_in_src else "write")
+        return
+
+    type_to_arg = {list: ("write", lambda data: (data[0] + data[1], "append"))} | (types or {})
+    recursive_types = {
+        dict: (
+            lambda dic: dic.items(),
+            lambda dic, key: key in dic,
+            lambda dic, key: dic[key],
+            lambda dic, key, value: dic.update({key: value}),
+            lambda: dict(),
+        )
+    } | (recursive_types or {})
+    jsonpath_match = {
+        jpath_str: [match.full_path for match in _jsonpath.parse(jpath_str).find(addon)]
+        for jpath_str in (paths or {}).keys()
+    }
+    log = {}
+    funcs_src = get_funcs(source)
+    funcs_add = get_funcs(addon)
+    for funcs, param_name, data in ((funcs_src, "source", source), (funcs_add, "addon", addon)):
+        if not funcs:
+            raise ValueError(f"Data type '{type(data)}' of '{param_name}' is not provided in 'recursive_types'.")
+    recursive(
+        src=source,
+        add=addon,
+        path="$",
+        src_funcs=funcs_src,
+        add_funcs=funcs_add,
     )
-    return full_log
+    return log
 
 
 def data_from_jsonschema(data: dict | list, schema: dict) -> None:
@@ -459,16 +637,12 @@ class TemplateFiller:
             for addon_dict, addon_settings in sorted(
                 addons, key=lambda addon: addon[1].get("priority", 0) if addon[1] else 0
             ):
-                addon_settings = addon_settings or {}
-                dict_from_addon(
-                    data=new_dict,
+                addon_settings = {k: v for k, v in (addon_settings or {}).items() if k not in ("priority",)}
+                recursive_update(
+                    source=new_dict,
                     addon=addon_dict,
-                    append_list=addon_settings.get("append_list", True),
-                    append_dict=addon_settings.get("append_dict", True),
-                    raise_duplicates=addon_settings.get("raise_duplicates", False),
-                    raise_type_mismatch=addon_settings.get("raise_type_mismatch", True),
+                    **addon_settings,
                 )
-
             if not is_relative_template:
                 self._visited_paths[current_path] = (new_dict, True)
             return new_dict
@@ -548,7 +722,7 @@ class _RegexPattern:
     def __init__(self, start: str, end: str):
         start_esc = _re.escape(start)
         end_esc = _re.escape(end)
-        self.pattern = _re.compile(rf"{start_esc}(.*?)(?={end_esc}){end_esc}", re.DOTALL)
+        self.pattern = _re.compile(rf"{start_esc}(.*?)(?={end_esc}){end_esc}", _re.DOTALL)
         return
 
     def fullmatch(self, string: str) -> _re.Match | None:
@@ -561,3 +735,4 @@ class _RegexPattern:
 
     def sub(self, repl, string: str) -> str:
         return self.pattern.sub(repl, string)
+
