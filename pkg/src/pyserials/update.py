@@ -432,6 +432,7 @@ class TemplateFiller:
 
         if isinstance(templ, dict):
             new_dict = {}
+            addons = []
             for key, val in templ.items():
                 key_filled = self._recursive_subst(
                     templ=key,
@@ -442,7 +443,7 @@ class TemplateFiller:
                     is_key=True,
                 )
                 if isinstance(key, str) and self._pattern_unpack.fullmatch(key):
-                    new_dict.update(key_filled)
+                    addons.append((key_filled, val))
                     continue
                 if key_filled in self._template_keys:
                     new_dict[key_filled] = val
@@ -455,6 +456,19 @@ class TemplateFiller:
                     level=0,
                     current_chain=current_chain + (new_path,),
                 )
+            for addon_dict, addon_settings in sorted(
+                addons, key=lambda addon: addon[1].get("priority", 0) if addon[1] else 0
+            ):
+                addon_settings = addon_settings or {}
+                dict_from_addon(
+                    data=new_dict,
+                    addon=addon_dict,
+                    append_list=addon_settings.get("append_list", True),
+                    append_dict=addon_settings.get("append_dict", True),
+                    raise_duplicates=addon_settings.get("raise_duplicates", False),
+                    raise_type_mismatch=addon_settings.get("raise_type_mismatch", True),
+                )
+
             if not is_relative_template:
                 self._visited_paths[current_path] = (new_dict, True)
             return new_dict
