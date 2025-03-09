@@ -49,8 +49,8 @@ class PySerialsUpdateException(_base.PySerialsException):
         return
 
 
-class PySerialsUpdateDictFromAddonError(PySerialsUpdateException):
-    """Base class for all exceptions raised by `pyserials.update.dict_from_addon`.
+class PySerialsUpdateRecursiveDataError(PySerialsUpdateException):
+    """Base class for all exceptions raised by `pyserials.update.recursive_update`.
 
     Attributes
     ----------

@@ -36,6 +36,7 @@ class NestedDict:
         relative_key_key: str | None = None,
         implicit_root: bool = True,
         getter_function_name: str = "get",
+        skip_key_func: Callable[[list[str]], bool] | None = None,
     ):
         self._data = data or {}
         self._templater = _ps.update.TemplateFiller(
@@ -62,6 +63,7 @@ class NestedDict:
             relative_key_key=relative_key_key,
             implicit_root=implicit_root,
             getter_function_name=getter_function_name,
+            skip_key_func=skip_key_func,
         )
         return
 

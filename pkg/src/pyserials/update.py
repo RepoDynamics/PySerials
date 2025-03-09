@@ -29,6 +29,8 @@ def recursive_update(
     types: dict[type | tuple[type, ...], UPDATE_OPTIONS | tuple[UPDATE_OPTIONS, UPDATE_OPTIONS]] | None = None,
     paths: dict[str, UPDATE_OPTIONS] | None = None,
     constructor: Callable[[], Any] | None = None,
+    undefined_new: UPDATE_OPTIONS = "write",
+    undefined_existing: UPDATE_OPTIONS = "skip",
     type_mismatch: UPDATE_OPTIONS = "raise",
 ) -> dict[str, list[str]]:
     """Recursively update a complex data structure using another data structure.
@@ -108,9 +110,8 @@ def recursive_update(
         types = {list: ("write", lambda data: (data[0] + data[1], "append"))}
         ```
 
-        The default behavior for any data type not specified in this argument is
-        `("write", "skip")`, meaning that the key/attribute will be written in the source data
-        if it does not exist, and ignored if it does.
+        The default behavior for any data type not specified in this argument
+        is determined by the `undefined_new` and `undefined_existing` arguments.
     paths
         Update behavior for specific keys using JSONPath expressions.
         This is the same as the `types` argument, but targeting specific keys
@@ -122,6 +123,14 @@ def recursive_update(
         This is used when the addon data contains a recursive key/attribute
         that is not present in the source data. If not provided,
         the type of the addon value will be used to create a new instance.
+    undefined_new
+        Behavior for when a non-recursive data with no defined behavior
+        in the `types` argument is found in the addon data
+        but not in the source data.
+    undefined_existing
+        Behavior for when a non-recursive data with no defined behavior
+        in the `types` argument is found in the addon data
+        and in the source data.
     type_mismatch
         Behavior for when a key/attribute in the source data
         is not a recursive type, but the corresponding key/attribute
@@ -176,8 +185,12 @@ def recursive_update(
         fn_add_items, _, _, _, fn_add_construct = add_funcs
 
         for key, value in fn_add_items(add):
-            fullpath = f"{path}.{key}"
-            full_jpath = _jsonpath.parse(f"{path}.'{key}'")  # quote to avoid JSONPath syntax errors
+            fullpath = f"{path}.'{key}'"
+            try:
+                full_jpath = _jsonpath.parse(fullpath)  # quote to avoid JSONPath syntax errors
+            except Exception as e:
+                print(fullpath)
+                raise e
             key_exists_in_src = fn_src_contains(src, key)
             source_value = fn_src_get(src, key) if key_exists_in_src else None
             for jpath_str, matches in jsonpath_match.items():
@@ -221,7 +234,7 @@ def recursive_update(
                     else:
                         # addon value is of a non-recursive type that does not have any defined behavior;
                         # Apply the default behavior for of ("write", "skip") for the key.
-                        apply("skip" if key_exists_in_src else "write")
+                        apply(undefined_existing if key_exists_in_src else undefined_new)
         return
 
     type_to_arg = {list: ("write", lambda data: (data[0] + data[1], "append"))} | (types or {})
@@ -307,6 +320,7 @@ class TemplateFiller:
         relative_key_key: str | None = None,
         implicit_root: bool = True,
         getter_function_name: str = "get",
+        skip_key_func: Callable[[list[str]], bool] | None = None,
     ):
         self._marker_start_value = marker_start_value
         self._marker_end_value = marker_end_value
@@ -329,6 +343,7 @@ class TemplateFiller:
         self._template_keys = relative_template_keys or []
         self._relative_key_key = relative_key_key
         self._getter_function_name = getter_function_name
+        self._skip_func = skip_key_func
 
         self._pattern_value: dict[int, _RegexPattern] = {}
         self._data = None
@@ -368,7 +383,11 @@ class TemplateFiller:
             code_lines = ["def __inline_code__():"]
             code_lines.extend([f"    {line}" for line in code_str.strip("\n").splitlines()])
             code_str_full = "\n".join(code_lines)
-            global_context = self._code_context.copy() | {self._getter_function_name: getter_function}
+            global_context = self._code_context.copy() | {
+                self._getter_function_name: getter_function,
+                "__current_path__": current_path,
+                "__relative_path_anchor__": relative_path_anchor
+            }
             for name, partial_func_data in self._code_context_partial.items():
                 if isinstance(partial_func_data, tuple):
                     func, arg_name = partial_func_data
@@ -428,6 +447,7 @@ class TemplateFiller:
                         return output, True
                     return output
                 path_expr = self._concat_json_paths(root_path_expr, path_expr)
+            # print("IN GET ADD VAL", path_expr)
             cached_result = self._visited_paths.get(path_expr)
             if cached_result:
                 value, matched = cached_result
@@ -534,6 +554,11 @@ class TemplateFiller:
                 template_start=self._marker_start_value,
                 template_end=self._marker_end_value,
             ) from exception
+
+        # print("IN MAIN", self._extract_fields(current_path))
+
+        if self._skip_func and self._skip_func(self._extract_fields(current_path)):
+            return templ
 
         if current_path in self._visited_paths:
             return self._visited_paths[current_path][0]
