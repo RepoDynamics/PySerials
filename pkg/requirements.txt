@@ -4,6 +4,6 @@ jsonpath-ng >= 1.6.1, < 2
 ruamel.yaml >= 0.18
 ruamel.yaml.string >= 0.1.1, < 1
 tomlkit >= 0.11.8, < 0.14
-MDit == 0.0.0.dev61
-ExceptionMan == 0.0.0.dev61
+MDit == 0.0.0.dev62
+ExceptionMan == 0.0.0.dev62
 ProtocolMan == 0.0.0.dev2
