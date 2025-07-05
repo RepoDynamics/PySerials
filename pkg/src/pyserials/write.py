@@ -27,7 +27,7 @@ def to_string(
         return to_json_string(data, sort_keys=sort_keys, indent=indent, default=default, end_of_file_newline=end_of_file_newline)
     if data_type == "yaml":
         return to_yaml_string(
-            data, 
+            data,
             end_of_file_newline=end_of_file_newline,
             indent_mapping=indent_mapping,
             indent_sequence=indent_sequence,
@@ -78,6 +78,29 @@ def to_json_string(
 ) -> str:
     string = _json.dumps(data, indent=indent, sort_keys=sort_keys, default=default)
     return f"{string.rstrip("\n")}\n" if end_of_file_newline else string
+
+
+def to_json_file(
+    data: dict | list | str | int | float | bool | _yaml.CommentedMap | _yaml.CommentedSeq,
+    path: str | _Path,
+    sort_keys: bool = False,
+    indent: int | None = None,
+    default: Callable[[Any], Any] | None = None,
+    end_of_file_newline: bool = True,
+    make_dirs: bool = True,
+) -> None:
+    json_string = to_json_string(
+        data,
+        sort_keys=sort_keys,
+        indent=indent,
+        default=default,
+        end_of_file_newline=end_of_file_newline,
+    )
+    path = _Path(path).resolve()
+    if make_dirs:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json_string)
+    return
 
 
 def to_yaml_file(
